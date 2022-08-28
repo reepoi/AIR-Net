@@ -1,8 +1,12 @@
+import os
+import sys
 import torch as t
+
+sys.path.append(os.path.abspath(os.path.dirname(__file__)))
+import loss
+import net
+
 cuda_if = t.cuda.is_available()
-
-import loss,net
-
 
 class basic_dmf(object):
     def __init__(self,para=[6,6,6],reg=None):
