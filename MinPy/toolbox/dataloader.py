@@ -1,14 +1,3 @@
-
-import os
-import sys
-current_dir = os.path.abspath(os.path.dirname(__file__))
-sys.path.append(current_dir)
-sys.path.append("..")
-
-from ..config import settings
-
-
-
 import torch as t
 import numpy as np
 from torch.autograd import Variable

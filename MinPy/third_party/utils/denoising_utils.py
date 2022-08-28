@@ -1,6 +1,4 @@
-import os
-from .common_utils import *
-
+from common_utils import *
 
         
 def get_noisy_image(img_np, sigma):

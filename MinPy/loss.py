@@ -1,15 +1,7 @@
-import os
-import sys
-current_dir = os.path.abspath(os.path.dirname(__file__))
-sys.path.append(current_dir)
-sys.path.append("..")
-
-from config import settings
 import torch.nn as nn
 import torch as t
 
-
-cuda_if = settings.cuda_if
+cuda_if = t.cuda.is_available()
 
 def mse(pre,rel,mask=None):
     if mask == None:
