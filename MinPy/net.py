@@ -8,7 +8,7 @@ from third_party.utils.denoising_utils import *
 cuda_if = t.cuda.is_available()
 
 
-class dmf(object):
+class DeepMatrixFactorization:
     # Deep Matrix Factorization
     def __init__(self,params):
         self.type = 'dmf'
@@ -16,43 +16,31 @@ class dmf(object):
         self.data = self.init_data()
         self.opt = self.init_opt()
 
-
-    def init_para(self,params):
+    def init_para(self,matrix_factor_dimensions):
         # Initial the parameter (Deep linear network)
-        hidden_sizes = params
-        layers = zip(hidden_sizes, hidden_sizes[1:])
-        nn_list = []
-        for (f_in,f_out) in layers:
-            nn_list.append(nn.Linear(f_in, f_out, bias=False))
-        model = nn.Sequential(*nn_list)
+        seq = nn.Sequential()
+        for d_row, d_col in matrix_factor_dimensions:
+            lin = nn.Linear(d_row, d_col, bias=False)
+            nn.init.normal_(lin.weight, mean=1e-3, std=1e-3)
+            seq.append(lin)
         if cuda_if:
-            model = model.cuda()
-        for m in model.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.normal_(m.weight,mean=1e-3,std=1e-3)
-        return model
+            seq = seq.cuda()
+        return seq
 
     def init_data(self):
         # Initial data
-        def get_e2e(model):
-            #获取预测矩阵
-            weight = None
-            for fc in model.children():
-                assert isinstance(fc, nn.Linear) and fc.bias is None
-                if weight is None:
-                    weight = fc.weight.t()
-                else:
-                    weight = fc(weight)
-            return weight
-        return get_e2e(self.net)
+        matrix_factors = list(self.net.children())
+        weight = matrix_factors[0].weight.t()
+        for c in matrix_factors[1:]:
+            assert isinstance(c, nn.Linear) and c.bias is None
+            weight = c(weight)
+        return weight
 
     def init_opt(self):
-        # Initial the optimizer of parameters in network
+        # Initialize the optimizer for the parameters in network
         optimizer = t.optim.Adam(self.net.parameters())
         return optimizer
-    
 
-    
     def update(self):
         self.opt.step()
         self.data = self.init_data()

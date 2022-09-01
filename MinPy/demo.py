@@ -10,7 +10,7 @@ cuda_if = t.cuda.is_available()
 
 class basic_dmf(object):
     def __init__(self,para=[6,6,6],reg=None):
-        self.net = net.dmf(para)
+        self.net = net.DeepMatrixFactorization(para)
         self.reg = reg
         self.loss_dict={'loss_fid':[],'loss_all':[],'nmae_test':[]}
         for reg_now in self.reg:

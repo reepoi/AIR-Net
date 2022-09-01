@@ -1,7 +1,8 @@
 # Image type matrix completion
 # Loss fixed pionts
+import csv
 import enum
-import MinPy
+from MinPy import demo, loss, net, reg
 import torch
 from MinPy.toolbox import dataloader, plot, pprint
 import numpy as np
@@ -20,7 +21,16 @@ WIDTH = 240
 EPOCHS = 10_001
 np.random.seed(20210909)
 
+def csv_to_tensor(csv_path):
+    with open(csv_path) as f:
+        reader = csv.reader(f, delimiter=',')
+        rows = []
+        for row in reader:
+            rows.append([float(f) for f in row])
+    return torch.tensor(rows)
+
 def drive(miss_mode, image_path, mask_path):
+    # pic = csv_to_tensor(image_path)[:HEIGHT].cuda()
     pic = dataloader.get_data(height=HEIGHT,width=WIDTH,pic_name=image_path).cuda() # Read grayscale image
 
     plot.gray_im(pic.cpu()) # Display grayscale image
@@ -44,11 +54,14 @@ def drive(miss_mode, image_path, mask_path):
 
     line_dict={'x_plot': np.arange(0, EPOCHS, 1)}
     for algo in [Algorithm.DMF, Algorithm.DMF_AIR]:
-        reg_hc = MinPy.reg.hc_reg(name='lap')
-        reg_row = MinPy.reg.auto_reg(HEIGHT, 'row')
-        reg_col = MinPy.reg.auto_reg(WIDTH, 'col')
-        reg_cnn = MinPy.reg.cnn_reg()
-        dmf = MinPy.demo.basic_dmf([HEIGHT, HEIGHT, HEIGHT, WIDTH], [reg_hc, reg_row, reg_col, reg_cnn]) # Define model
+        reg_hc = reg.hc_reg(name='lap')
+        reg_row = reg.auto_reg(HEIGHT, 'row')
+        reg_col = reg.auto_reg(WIDTH, 'col')
+        reg_cnn = reg.cnn_reg()
+        matrix_dimensions_flat = [HEIGHT, HEIGHT, HEIGHT, WIDTH]
+        matrix_dimensions = list(zip(matrix_dimensions_flat, matrix_dimensions_flat[1:]))
+        regularizers = [reg_hc, reg_row, reg_col, reg_cnn]
+        dmf = demo.basic_dmf(matrix_dimensions, regularizers) # Define model
 
         eta = [None] * 4 if algo is Algorithm.DMF else [None, 1e-4, 1e-4, None]
 
