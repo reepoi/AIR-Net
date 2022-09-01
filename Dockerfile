@@ -16,5 +16,5 @@ EXPOSE $PORT
 
 WORKDIR .
 
-CMD jupyter notebook --no-browser -ip 0.0.0.0 --port $PORT
+CMD jupyter notebook --no-browser --allow-root -ip 0.0.0.0 --port $PORT
 
