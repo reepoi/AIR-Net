@@ -8,7 +8,7 @@ RUN pip install -r requirements.txt
 
 COPY . .
 
-ENV CUDA_VISIBLE_DEVICES=7
+ENV CUDA_VISIBLE_DEVICES=3
 
 ENV PORT=8800
 
@@ -16,5 +16,5 @@ EXPOSE $PORT
 
 WORKDIR .
 
-CMD jupyter notebook --no-browser --port=$PORT
+CMD jupyter notebook --no-browser -ip 0.0.0.0 --port $PORT
 
