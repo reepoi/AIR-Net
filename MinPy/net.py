@@ -190,7 +190,7 @@ class dip(object):
         self.data = self.init_data(self.input+t.randn(self.input.shape).cuda()*5e-2)
 
 
-class nl_dmf(dmf):
+class nl_dmf(DeepMatrixFactorization):
     # Nonlinear deep matrix factorization
     def __init__(self,params):
         DeepMatrixFactorization.__init__(self,params)
