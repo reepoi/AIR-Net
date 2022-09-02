@@ -2,6 +2,10 @@ FROM pytorch/pytorch:1.11.0-cuda11.3-cudnn8-runtime
 
 LABEL taost=taost
 
+# Install OpenCV requirements
+RUN apt-get update
+RUN apt-get install ffmpeg libsm6 libxext6  -y
+
 COPY ./requirements.txt .
 
 RUN pip install -r requirements.txt
