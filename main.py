@@ -18,8 +18,8 @@ class Algorithm(enum.Enum):
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 HEIGHT = 240
-WIDTH = 240
-EPOCHS = 10_001
+WIDTH = 49
+EPOCHS = 30_001
 np.random.seed(20210909)
 
 def csv_to_tensor(csv_path):
@@ -48,7 +48,7 @@ def train_my_dmf(model, loss_fn, optimizer, matrix, mask):
         nmae_losses.append(lossm.nmae(reconstructed_matrix, matrix, mask).detach().cpu().numpy())
 
         if e % 100 == 0:
-            print(f"loss: {nmae_losses[-1]:>7f}  [{e:>5d}/{EPOCHS:>5d}]")
+            pprint.my_progress_bar(e, EPOCHS, nmae_losses[-1])
         if e % 5000 == 0:
             plot.gray_im(reconstructed_matrix.cpu().detach().numpy())
 
@@ -85,7 +85,7 @@ def train_my_dmf_air(model, loss_fn, optimizer, matrix, mask):
         nmae_losses.append(lossm.nmae(reconstructed_matrix, matrix, mask).detach().cpu().numpy())
 
         if e % 100 == 0:
-            print(f"loss: {nmae_losses[-1]:>7f}  [{e:>5d}/{EPOCHS:>5d}]")
+            pprint.my_progress_bar(e, EPOCHS, nmae_losses[-1])
         if e % 5000 == 0:
             plot.gray_im(reconstructed_matrix.cpu().detach().numpy())
 
@@ -114,15 +114,15 @@ def train_dmf_air(matrix_dimensions, matrix, mask):
 
 
 def drive(miss_mode, image_path, mask_path):
-    # pic = csv_to_tensor(image_path)[:HEIGHT].cuda()
-    pic = dataloader.get_data(height=HEIGHT,width=WIDTH,pic_name=image_path).cuda() # Read grayscale image
+    pic = csv_to_tensor(image_path)[:HEIGHT].cuda()
+    # pic = dataloader.get_data(height=HEIGHT,width=WIDTH,pic_name=image_path).cuda() # Read grayscale image
 
     plot.gray_im(pic.cpu()) # Display grayscale image
 
     transformer = dataloader.data_transform(z=pic,return_type='tensor')
 
     if miss_mode is MissMode.RANDOM:
-        mask_in = transformer.get_drop_mask(rate=0.3) # 'rate' is the loss rate
+        mask_in = transformer.get_drop_mask(rate=0.6) # 'rate' is the loss rate
         mask_in[mask_in < 1] = 0
     elif miss_mode is MissMode.PATCH:
         mask_in = torch.ones(HEIGHT, WIDTH).cuda()
@@ -158,6 +158,6 @@ def drive(miss_mode, image_path, mask_path):
         pic,
         mask_in.cuda()
     )
-    _, line_dict['DMF+AIR'] = train_dmf_air(matrix_dimensions, pic, mask_in.cuda())
+    # _, line_dict['DMF+AIR'] = train_dmf_air(matrix_dimensions, pic, mask_in.cuda())
 
     plot.lines(line_dict, save_if=False, black_if=True, ylabel_name='NMAE')

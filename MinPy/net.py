@@ -22,8 +22,13 @@ class MyDeepMatrixFactorization(nn.Module):
             seq.append(lin)
         return seq
 
-    def forward(self, x):
-        return reduce(lambda x, c: c(x), self.matrix_factors, x)
+    def forward(self, _):
+        matrix_factors = list(self.matrix_factors.children())
+        weight = matrix_factors[0].weight.t()
+        for c in matrix_factors[1:]:
+            assert isinstance(c, nn.Linear) and c.bias is None
+            weight = c(weight)
+        return weight
 
 class DeepMatrixFactorization:
     # Deep Matrix Factorization
