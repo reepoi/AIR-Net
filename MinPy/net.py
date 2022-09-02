@@ -1,3 +1,4 @@
+from functools import reduce
 import torch.nn as nn
 import torch as t
 from torch.autograd import Variable
@@ -8,11 +9,27 @@ from third_party.utils.denoising_utils import *
 cuda_if = t.cuda.is_available()
 
 
+class MyDeepMatrixFactorization(nn.Module):
+    def __init__(self, matrix_factor_dimensions):
+        super().__init__()
+        self.matrix_factors = self.build_matrix_factorization(matrix_factor_dimensions)
+
+    def build_matrix_factorization(self, matrix_factor_dimensions):
+        seq = nn.Sequential()
+        for d_row, d_col in matrix_factor_dimensions:
+            lin = nn.Linear(d_row, d_col, bias=False)
+            nn.init.normal_(lin.weight, mean=1e-3, std=1e-3)
+            seq.append(lin)
+        return seq
+
+    def forward(self, x):
+        return reduce(lambda x, c: c(x), self.matrix_factors, x)
+
 class DeepMatrixFactorization:
     # Deep Matrix Factorization
-    def __init__(self,params):
+    def __init__(self, matrix_factor_dimensions):
         self.type = 'dmf'
-        self.net = self.init_para(params)
+        self.net = self.init_para(matrix_factor_dimensions)
         self.data = self.init_data()
         self.opt = self.init_opt()
 

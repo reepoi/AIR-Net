@@ -1,8 +1,8 @@
 # Image type matrix completion
-# Loss fixed pionts
+# Loss fixed points
 import csv
 import enum
-from MinPy import demo, loss, net, reg
+from MinPy import demo, loss as lossm, net, reg
 import torch
 from MinPy.toolbox import dataloader, plot, pprint
 import numpy as np
@@ -16,6 +16,7 @@ class Algorithm(enum.Enum):
     DMF = enum.auto()
     DMF_AIR = enum.auto()
 
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 HEIGHT = 240
 WIDTH = 240
 EPOCHS = 10_001
@@ -28,6 +29,52 @@ def csv_to_tensor(csv_path):
         for row in reader:
             rows.append([float(f) for f in row])
     return torch.tensor(rows)
+
+
+def train_my_dmf(model, loss_fn, optimizer, matrix, mask):
+    nmae_losses = []
+    model.train()
+    for e in range(EPOCHS):
+
+        # Compute prediction error
+        reconstructed_matrix = model(matrix * mask)
+        loss = loss_fn(reconstructed_matrix, matrix, mask)
+
+        # Backpropagation
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        nmae_losses.append(lossm.nmae(reconstructed_matrix, matrix, mask).detach().cpu().numpy())
+
+        if e % 100 == 0:
+            print(f"loss: {nmae_losses[-1]:>7f}  [{e:>5d}/{EPOCHS:>5d}]")
+        if e % 5000 == 0:
+            plot.gray_im(reconstructed_matrix.cpu().detach().numpy())
+
+    return reconstructed_matrix, nmae_losses
+
+
+def train_dmf_air(matrix_dimensions, matrix, mask):
+    reg_row = reg.auto_reg(HEIGHT, 'row')
+    reg_col = reg.auto_reg(WIDTH, 'col')
+    regularizers = [reg_row, reg_col]
+    dmf = demo.basic_dmf(matrix_dimensions, regularizers) # Define model
+
+    eta = [None, 1e-4, 1e-4, None]
+
+    #Training model
+    for ite in range(EPOCHS):
+        dmf.train(matrix, mu=1, eta=eta, mask_in=mask)
+
+        if ite % 100 == 0:
+            pprint.progress_bar(ite, EPOCHS, dmf.loss_dict) # Format the loss of the output training and print out the training progress bar
+
+        if ite % 5000 == 0:
+            plot.gray_im(dmf.net.data.cpu().detach().numpy()) # Display the training image, you can set parameters to save the image
+
+    return dmf.net.data, dmf.loss_dict['nmae_test']
+
 
 def drive(miss_mode, image_path, mask_path):
     # pic = csv_to_tensor(image_path)[:HEIGHT].cuda()
@@ -52,36 +99,20 @@ def drive(miss_mode, image_path, mask_path):
 
     plot.gray_im(pic.cpu() * mask_in.cpu())
 
-    line_dict={'x_plot': np.arange(0, EPOCHS, 1)}
-    for algo in [Algorithm.DMF, Algorithm.DMF_AIR]:
-        reg_hc = reg.hc_reg(name='lap')
-        reg_row = reg.auto_reg(HEIGHT, 'row')
-        reg_col = reg.auto_reg(WIDTH, 'col')
-        reg_cnn = reg.cnn_reg()
-        matrix_dimensions_flat = [HEIGHT, HEIGHT, HEIGHT, WIDTH]
-        matrix_dimensions = list(zip(matrix_dimensions_flat, matrix_dimensions_flat[1:]))
-        regularizers = [reg_hc, reg_row, reg_col, reg_cnn]
-        dmf = demo.basic_dmf(matrix_dimensions, regularizers) # Define model
-
-        eta = [None] * 4 if algo is Algorithm.DMF else [None, 1e-4, 1e-4, None]
-
-        #Training model
-        for ite in range(EPOCHS):
-            dmf.train(pic, mu=1, eta=eta, mask_in=mask_in)
-
-            if ite % 100 == 0:
-                pprint.progress_bar(ite, EPOCHS, dmf.loss_dict) # Format the loss of the output training and print out the training progress bar
-
-            if ite % 5000 == 0:
-                plot.gray_im(dmf.net.data.cpu().detach().numpy()) # Display the training image, you can set parameters to save the image
-                print('RMSE:', torch.sqrt(torch.mean((pic-dmf.net.data)**2)).detach().cpu().numpy())
-                #plot.gray_im(dmf.net.show_img().cpu().detach().numpy()) # Display the training image, you can set parameters to save the image
-
-        # save loss values for plotting
-        plot_keys_ignore = {'loss_all', 'loss_fid', 'loss_auto_reg_col', 'loss_auto_reg_row'}
-        for k, v in dmf.loss_dict.items():
-            if k not in plot_keys_ignore and v:
-                line_dict[algo.name] = np.array(v)
-
+    matrix_dimensions = [
+        (HEIGHT, HEIGHT),
+        (HEIGHT, HEIGHT),
+        (HEIGHT, WIDTH)
+    ]
+    line_dict = {'x_plot': np.arange(0, EPOCHS, 1)}
+    mydmf = net.MyDeepMatrixFactorization(matrix_dimensions).to(device)
+    _, line_dict['mydmf'] = train_my_dmf(
+        mydmf,
+        lossm.mse,
+        torch.optim.Adam(mydmf.parameters()),
+        pic,
+        mask_in.cuda()
+    )
+    _, line_dict['DMF+AIR'] = train_dmf_air(matrix_dimensions, pic, mask_in.cuda())
 
     plot.lines(line_dict, save_if=False, black_if=True, ylabel_name='NMAE')
