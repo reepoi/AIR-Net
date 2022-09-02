@@ -55,13 +55,50 @@ def train_my_dmf(model, loss_fn, optimizer, matrix, mask):
     return reconstructed_matrix, nmae_losses
 
 
+def train_my_dmf_air(model, loss_fn, optimizer, matrix, mask):
+    nmae_losses = []
+    model.train()
+    regularizer_row = reg.auto_reg(HEIGHT, 'row')
+    regularizer_col = reg.auto_reg(WIDTH, 'col')
+
+    for e in range(EPOCHS):
+
+        # Compute prediction error
+        reconstructed_matrix = model(matrix * mask)
+        loss = (
+            loss_fn(reconstructed_matrix, matrix, mask)
+            + 1e-4 * regularizer_row.init_data(reconstructed_matrix)
+            + 1e-4 * regularizer_col.init_data(reconstructed_matrix)
+        )
+
+        # Backpropagation
+        regularizer_row.opt.zero_grad()
+        regularizer_col.opt.zero_grad()
+        optimizer.zero_grad()
+
+        loss.backward()
+
+        optimizer.step()
+        regularizer_row.update(reconstructed_matrix)
+        regularizer_col.update(reconstructed_matrix)
+
+        nmae_losses.append(lossm.nmae(reconstructed_matrix, matrix, mask).detach().cpu().numpy())
+
+        if e % 100 == 0:
+            print(f"loss: {nmae_losses[-1]:>7f}  [{e:>5d}/{EPOCHS:>5d}]")
+        if e % 5000 == 0:
+            plot.gray_im(reconstructed_matrix.cpu().detach().numpy())
+
+    return reconstructed_matrix, nmae_losses
+
+
 def train_dmf_air(matrix_dimensions, matrix, mask):
     reg_row = reg.auto_reg(HEIGHT, 'row')
     reg_col = reg.auto_reg(WIDTH, 'col')
     regularizers = [reg_row, reg_col]
-    dmf = demo.basic_dmf(matrix_dimensions, regularizers) # Define model
+    dmf = demo.BasicDeepMatrixFactorization(matrix_dimensions, regularizers) # Define model
 
-    eta = [None, 1e-4, 1e-4, None]
+    eta = [1e-4, 1e-4]
 
     #Training model
     for ite in range(EPOCHS):
@@ -110,6 +147,14 @@ def drive(miss_mode, image_path, mask_path):
         mydmf,
         lossm.mse,
         torch.optim.Adam(mydmf.parameters()),
+        pic,
+        mask_in.cuda()
+    )
+    mydmfair = net.MyDeepMatrixFactorization(matrix_dimensions).to(device)
+    _, line_dict['mydmfair'] = train_my_dmf_air(
+        mydmfair,
+        lossm.mse,
+        torch.optim.Adam(mydmfair.parameters()),
         pic,
         mask_in.cuda()
     )
