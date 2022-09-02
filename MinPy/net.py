@@ -193,7 +193,7 @@ class dip(object):
 class nl_dmf(dmf):
     # Nonlinear deep matrix factorization
     def __init__(self,params):
-        dmf.__init__(self,params)
+        DeepMatrixFactorization.__init__(self,params)
 
     def init_data(self):
         # Initial data

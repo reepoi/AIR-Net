@@ -75,7 +75,7 @@ class basic_dmf(object):
 
 class air_net(object):
     def __init__(self,para=[6,6,6],reg=None,def_type=0,hadm_lr=1e-3,img=None,net_lr=1e-3):
-        #self.net = net.dmf(para)
+        #self.net = net.DeepMatrixFactorization(para)
         img = img.unsqueeze(dim=0)
         img = t.repeat_interleave(img.unsqueeze(dim=1), repeats=para[0], dim=1)
         self.net = net.dip(para,img=img,lr=net_lr)
