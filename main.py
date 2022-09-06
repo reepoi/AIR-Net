@@ -1,6 +1,7 @@
 # Image type matrix completion
 # Loss fixed points
 import csv
+from collections import namedtuple
 import enum
 from MinPy import demo, loss as lossm, net, reg
 import torch
@@ -55,33 +56,46 @@ def train_my_dmf(model, loss_fn, optimizer, matrix, mask, epochs):
     return reconstructed_matrix, nmae_losses
 
 
-def train_my_dmf_air(model, loss_fn, optimizer, matrix, mask, epochs):
-    nmae_losses = []
+def train_my_dmf_air(matrix_dimensions, loss_fn, model_optimizer, matrix, mask, epochs,
+                     row_similarity_optimizer=None, col_similarity_optimizer=None):
+    model = net.MyDeepMatrixFactorization(matrix_dimensions).to(device)
+    model_optimizer = model_optimizer(model.parameters())
     model.train()
     height, width = matrix.shape
-    regularizer_row = reg.auto_reg(height, 'row')
-    regularizer_col = reg.auto_reg(width, 'col')
 
+    RegularizerSet = namedtuple('RegularizerSet', ['weight_decay', 'regularizer', 'optimizer'])
+    regularizer_list = []
+
+    if row_similarity_optimizer:
+        regularizer = reg.DirichletEnergyRegularization(height, reg.DirichletEnergyRegularizationMode.ROW_SIMILARITY).to(device)
+        optimizer = row_similarity_optimizer(regularizer.parameters())
+        regularizer_list.append(RegularizerSet(weight_decay=1e-4, regularizer=regularizer, optimizer=optimizer))
+
+    if col_similarity_optimizer:
+        regularizer = reg.DirichletEnergyRegularization(width, reg.DirichletEnergyRegularizationMode.COL_SIMILARITY).to(device)
+        optimizer = col_similarity_optimizer(regularizer.parameters())
+        regularizer_list.append(RegularizerSet(weight_decay=1e-4, regularizer=regularizer, optimizer=optimizer))
+
+    nmae_losses = []
     for e in range(epochs):
 
         # Compute prediction error
         reconstructed_matrix = model(matrix * mask)
         loss = (
             loss_fn(reconstructed_matrix, matrix, mask)
-            + 1e-4 * regularizer_row.init_data(reconstructed_matrix)
-            + 1e-4 * regularizer_col.init_data(reconstructed_matrix)
+            + sum(r.weight_decay * r.regularizer(reconstructed_matrix) for r in regularizer_list)
         )
 
         # Backpropagation
-        regularizer_row.opt.zero_grad()
-        regularizer_col.opt.zero_grad()
-        optimizer.zero_grad()
+        model_optimizer.zero_grad()
+        for r in regularizer_list:
+            r.optimizer.zero_grad()
 
         loss.backward()
 
-        optimizer.step()
-        regularizer_row.update(reconstructed_matrix)
-        regularizer_col.update(reconstructed_matrix)
+        model_optimizer.step()
+        for r in regularizer_list:
+            r.optimizer.step()
 
         nmae_losses.append(lossm.nmae(reconstructed_matrix, matrix, mask).detach().cpu().numpy())
 
@@ -154,29 +168,30 @@ def drive(miss_mode, image_path, mask_path):
         (height, width)
     ]
     line_dict = {'x_plot': np.arange(0, epochs, 1)}
-    mydmf = net.MyDeepMatrixFactorization(matrix_dimensions).to(device)
-    RCMatrix_MyDMF, line_dict['mydmf'] = train_my_dmf(
-        mydmf,
-        lossm.mse,
-        torch.optim.Adam(mydmf.parameters()),
-        pic,
-        mask_in.cuda(),
-        epochs
-    )
-    mydmfair = net.MyDeepMatrixFactorization(matrix_dimensions).to(device)
+#     mydmf = net.MyDeepMatrixFactorization(matrix_dimensions).to(device)
+#     RCMatrix_MyDMF, line_dict['mydmf'] = train_my_dmf(
+#         mydmf,
+#         lossm.mse,
+#         torch.optim.Adam(mydmf.parameters()),
+#         pic,
+#         mask_in.cuda(),
+#         epochs
+#     )
     RCMatrix_MyDMF_AIR, line_dict['mydmfair'] = train_my_dmf_air(
-        mydmfair,
+        matrix_dimensions,
         lossm.mse,
-        torch.optim.Adam(mydmfair.parameters()),
+        torch.optim.Adam,
         pic,
         mask_in.cuda(),
-        epochs
+        epochs,
+        row_similarity_optimizer=torch.optim.Adam,
+        col_similarity_optimizer=torch.optim.Adam
     )
 #     RCMatrix_DMF_AIR, line_dict['DMF+AIR'] = train_dmf_air(matrix_dimensions, pic, mask_in.cuda(), epochs)
 
-    write_csv(row_indices.reshape(-1, 1), 'row_indices')
-    write_csv(RCMatrix_MyDMF.cpu().detach().numpy(), 'RCMatrix_MyDMF')
-    write_csv(RCMatrix_MyDMF_AIR.cpu().detach().numpy(), 'RCMatrix_MyDMF_AIR')
+#     write_csv(row_indices.reshape(-1, 1), 'row_indices')
+#     write_csv(RCMatrix_MyDMF.cpu().detach().numpy(), 'RCMatrix_MyDMF')
+#     write_csv(RCMatrix_MyDMF_AIR.cpu().detach().numpy(), 'RCMatrix_MyDMF_AIR')
 #     write_csv(RCMatrix_DMF_AIR.cpu().detach().numpy(), 'RCMatrix_DMF_AIR')
 
     plot.lines(line_dict, save_if=False, black_if=True, ylabel_name='NMAE')

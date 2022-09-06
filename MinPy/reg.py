@@ -1,8 +1,11 @@
+import enum
 import torch.nn as nn
 import torch as t
+import torch
 import numpy as np
 
 cuda_if = t.cuda.is_available()
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 class hc_reg(object):
     #使用torch写的正则化项
@@ -80,15 +83,53 @@ class hc_reg(object):
         self.LAP = lap
         return t.trace(t.mm(M.T,t.mm(lap,M)))
 
-        
+
+class DirichletEnergyRegularizationMode(enum.Enum):
+    ROW_SIMILARITY = enum.auto()
+    COL_SIMILARITY = enum.auto()
+
+
+class DirichletEnergyRegularization(nn.Module):
+    def __init__(self, dimension, fit_mode):
+        super().__init__()
+        self.dirichlet_energy = self.dirichlet_energy_function(fit_mode)
+        self.model = nn.Linear(dimension, dimension, bias=False)
+
+    def forward(self, X):
+        adjacency_matrix = self.build_adjacency_matrix()
+        degree_matrix = self.build_degree_matrix(adjacency_matrix)
+        graph_laplacian_matrix = degree_matrix - adjacency_matrix
+        return self.dirichlet_energy(X, graph_laplacian_matrix)
+    
+    def build_adjacency_matrix(self):
+        dimension = self.model.weight.shape[0]
+        ones_vector = torch.ones(dimension, 1).to(device)
+        weights = self.model.weight
+        adjacency_matrix = (
+            torch.exp(weights + weights.T)
+            / torch.mm(ones_vector.reshape(1, -1), torch.mm(torch.exp(weights), ones_vector.reshape(-1, 1)))
+        )
+        return adjacency_matrix
+
+    def build_degree_matrix(self, adjacency_matrix):
+        dimension = self.model.weight.shape[0]
+        ones_matrix = torch.ones(dimension, dimension).to(device)
+        identity_matrix = torch.eye(dimension).to(device)
+        degree_matrix = torch.mm(adjacency_matrix, ones_matrix) * identity_matrix
+        return degree_matrix
+
+    def dirichlet_energy_function(self, fit_mode):
+        if fit_mode is DirichletEnergyRegularizationMode.ROW_SIMILARITY:
+            return lambda X, L: torch.trace(torch.mm(X.T, torch.mm(L, X)))
+        elif fit_mode is DirichletEnergyRegularizationMode.COL_SIMILARITY:
+            return lambda X, L: torch.trace(torch.mm(X, torch.mm(L, X.T)))
+        else:
+            raise ValueError(f'Invalid Dirichlet Energy Regularization Mode: {fit_mode}')
 
 class auto_reg(object):
     def __init__(self,size,mode='row'):
         self.type = 'auto_reg_'+mode
-        if mode == 'row':
-            self.net = self.init_net(size,mode)
-        else:
-            self.net = self.init_net(size,mode)
+        self.net = self.init_net(size,mode)
         if cuda_if:
             self.net = self.net.cuda()
         self.opt = self.init_opt()
@@ -113,8 +154,6 @@ class auto_reg(object):
                 A_2 = (A_1+A_1.T)/2 # A_2 一定是对称的
                 A_3 = A_2 * (t.mm(Ones,Ones.T)-I_n) # A_3 将中间的元素都归零，作为邻接矩阵
                 A_4 = -A_3+t.mm(A_3,t.mm(Ones,Ones.T))*I_n # A_4 将邻接矩阵转化为拉普拉斯矩阵
-                self.lap = A_4
-
                 if self.mode == 'row':
                     return t.trace(t.mm(W.T,t.mm(A_4,W)))#+l1 #行关系
                 elif self.mode == 'col':
