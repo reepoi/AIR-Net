@@ -112,7 +112,8 @@ class data_transform(object):
     
     def get_drop_mask(self,rate=0):
         # 返回一个形状为 (length,width) 的matrix
-        drop_matrix = t.tensor(np.random.random((self.height,self.width))>rate).int()
+        rng = np.random.RandomState()#seed=20210909)
+        drop_matrix = t.tensor(rng.random((self.height,self.width))>rate).int()
         return drop_matrix
     
     def drop(self,M=None,drop_matrix=None,return_type='tensor',batch_size=256):
