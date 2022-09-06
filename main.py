@@ -32,9 +32,12 @@ def csv_to_tensor(csv_path):
     return torch.tensor(rows)
 
 
-def train_my_dmf(model, loss_fn, optimizer, matrix, mask, epochs):
-    nmae_losses = []
+def train_my_dmf(matrix_dimensions, loss_fn, model_optimizer, matrix, mask, epochs):
+    model = net.MyDeepMatrixFactorization(matrix_dimensions).to(device)
+    model_optimizer = model_optimizer(model.parameters())
     model.train()
+
+    nmae_losses = []
     for e in range(epochs):
 
         # Compute prediction error
@@ -42,9 +45,9 @@ def train_my_dmf(model, loss_fn, optimizer, matrix, mask, epochs):
         loss = loss_fn(reconstructed_matrix, matrix, mask)
 
         # Backpropagation
-        optimizer.zero_grad()
+        model_optimizer.zero_grad()
         loss.backward()
-        optimizer.step()
+        model_optimizer.step()
 
         nmae_losses.append(lossm.nmae(reconstructed_matrix, matrix, mask).detach().cpu().numpy())
 
@@ -168,15 +171,14 @@ def drive(miss_mode, image_path, mask_path):
         (height, width)
     ]
     line_dict = {'x_plot': np.arange(0, epochs, 1)}
-#     mydmf = net.MyDeepMatrixFactorization(matrix_dimensions).to(device)
-#     RCMatrix_MyDMF, line_dict['mydmf'] = train_my_dmf(
-#         mydmf,
-#         lossm.mse,
-#         torch.optim.Adam(mydmf.parameters()),
-#         pic,
-#         mask_in.cuda(),
-#         epochs
-#     )
+    RCMatrix_MyDMF, line_dict['mydmf'] = train_my_dmf(
+        matrix_dimensions,
+        lossm.mse,
+        torch.optim.Adam,
+        pic,
+        mask_in.cuda(),
+        epochs
+    )
     RCMatrix_MyDMF_AIR, line_dict['mydmfair'] = train_my_dmf_air(
         matrix_dimensions,
         lossm.mse,
