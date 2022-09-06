@@ -172,10 +172,11 @@ def drive(miss_mode, image_path, mask_path):
         mask_in.cuda(),
         epochs
     )
-    # _, line_dict['DMF+AIR'] = train_dmf_air(matrix_dimensions, pic, mask_in.cuda(), epochs)
+#     RCMatrix_DMF_AIR, line_dict['DMF+AIR'] = train_dmf_air(matrix_dimensions, pic, mask_in.cuda(), epochs)
 
     write_csv(row_indices.reshape(-1, 1), 'row_indices')
     write_csv(RCMatrix_MyDMF.cpu().detach().numpy(), 'RCMatrix_MyDMF')
     write_csv(RCMatrix_MyDMF_AIR.cpu().detach().numpy(), 'RCMatrix_MyDMF_AIR')
+#     write_csv(RCMatrix_DMF_AIR.cpu().detach().numpy(), 'RCMatrix_DMF_AIR')
 
     plot.lines(line_dict, save_if=False, black_if=True, ylabel_name='NMAE')
