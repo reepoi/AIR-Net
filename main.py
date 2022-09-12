@@ -32,6 +32,16 @@ def csv_to_tensor(csv_path):
     return torch.tensor(rows)
 
 
+def make_time_frame_matrix(data, t):
+    data = data[:3200]
+    v_x, v_y = data[0::2], data[1::2]
+    v_vecs = torch.tensor([[[x, y] for x, y in zip(r_x, r_y)] for r_x, r_y in zip(v_x, v_y)]).cuda()
+    v_t = v_vecs[:, t, :]
+    v_t_normed = torch.norm(v_t, dim=1)
+    print(v_vecs.shape, v_t.shape, v_t_normed.shape)
+    return v_t_normed.reshape(40, 40)
+
+
 def train_my_dmf(matrix_dimensions, loss_fn, model_optimizer, matrix, mask, epochs):
     model = net.MyDeepMatrixFactorization(matrix_dimensions).to(device)
     model_optimizer = model_optimizer(model.parameters())

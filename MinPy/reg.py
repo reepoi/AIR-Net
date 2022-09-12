@@ -126,6 +126,21 @@ class DirichletEnergyRegularization(nn.Module):
         else:
             raise ValueError(f'Invalid Dirichlet Energy Regularization Mode: {fit_mode}')
 
+
+class MysteryRegularization(DirichletEnergyRegularization):
+    def __init__(self, dimension, fit_mode):
+        super().__init__(dimension, fit_mode)
+        self.softmin = nn.Softmin(1)
+
+    def build_adjacency_matrix(self):
+        dimension = self.model.weight.shape[0]
+        ones_matrix = torch.ones(dimension, dimension).to(device)
+        identity_matrix = torch.eye(dimension).to(device)
+        weights = self.softmin(self.model.weight)
+        adjacency_matrix = (weights + weights.T) * (ones_matrix - identity_matrix)
+        return adjacency_matrix
+
+
 class auto_reg(object):
     def __init__(self,size,mode='row'):
         self.type = 'auto_reg_'+mode
