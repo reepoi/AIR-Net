@@ -12,15 +12,10 @@ import numpy as np
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
-class MissMode(enum.Enum):
-    RANDOM = enum.auto() # Random pixels are set to zero
-    PATCH = enum.auto() # Entire pixel blocks are set to zero
-    FIXED = enum.auto() # A mask from a file is used to determine with pixels are set to zero
+rng = np.random.RandomState(seed=20210909)
 
-
-class Algorithm(enum.Enum):
-    DMF = enum.auto()
-    DMF_AIR = enum.auto()
+Shape = namedtuple('Shape', ['rows', 'cols'])
+Regularizer = namedtuple('RegularizerSet', ['weight_decay', 'regularizer', 'optimizer'])
 
 
 def csv_to_tensor(csv_path):
@@ -32,62 +27,33 @@ def csv_to_tensor(csv_path):
     return torch.tensor(rows)
 
 
-def make_time_frame_matrix(data, t):
-    data = data[:3200]
-    v_x, v_y = data[0::2], data[1::2]
-    v_vecs = torch.tensor([[[x, y] for x, y in zip(r_x, r_y)] for r_x, r_y in zip(v_x, v_y)]).cuda()
-    v_t = v_vecs[:, t, :]
-    v_t_normed = torch.norm(v_t, dim=1)
-    print(v_vecs.shape, v_t.shape, v_t_normed.shape)
-    return v_t_normed.reshape(40, 40)
+def write_csv(matrix, filename):
+    np.savetxt(f'{filename}.csv', matrix, delimiter=',')
+
+    
+def get_bit_mask(matrix, rate):
+    return torch.tensor(rng.random(matrix.shape) > rate).int().to(device)
+    
+    
+def dirichlet_energy_regularization(weight_decay, dimension, similarity_type):
+    regularizer = reg.DirichletEnergyRegularization(dimension, similarity_type).to(device)
+    optimizer = torch.optim.Adam(regularizer.parameters())
+    return Regularizer(weight_decay=weight_decay, regularizer=regularizer, optimizer=optimizer)
 
 
-def train_my_dmf(matrix_dimensions, loss_fn, model_optimizer, matrix, mask, epochs):
-    model = net.MyDeepMatrixFactorization(matrix_dimensions).to(device)
-    model_optimizer = model_optimizer(model.parameters())
-    model.train()
-
-    nmae_losses = []
-    for e in range(epochs):
-
-        # Compute prediction error
-        reconstructed_matrix = model(matrix * mask)
-        loss = loss_fn(reconstructed_matrix, matrix, mask)
-
-        # Backpropagation
-        model_optimizer.zero_grad()
-        loss.backward()
-        model_optimizer.step()
-
-        nmae_losses.append(lossm.nmae(reconstructed_matrix, matrix, mask).detach().cpu().numpy())
-
-        if e % 100 == 0:
-            pprint.my_progress_bar(e, epochs, nmae_losses[-1])
-        if e % 5000 == 0:
-            plot.gray_im(reconstructed_matrix.cpu().detach().numpy())
-
-    return reconstructed_matrix, nmae_losses
+def paper_regularization(weight_decay, dimension, similarity_type):
+    regularizer = reg.auto_reg(dimension, similarity_type)
+    return Regularizer(weight_decay=weight_decay, regularizer=regularizer, optimizer=None)
 
 
-def train_my_dmf_air(matrix_dimensions, loss_fn, model_optimizer, matrix, mask, epochs,
-                     row_similarity_optimizer=None, col_similarity_optimizer=None):
-    model = net.MyDeepMatrixFactorization(matrix_dimensions).to(device)
-    model_optimizer = model_optimizer(model.parameters())
+def run_test(epochs, matrix_factor_dimensions, matrix, mask, regularizers=None):
+    if not regularizers:
+        regularizers = []
+
+    model = net.MyDeepMatrixFactorization(matrix_factor_dimensions).to(device)
+    optimizer = torch.optim.Adam(model.parameters())
     model.train()
     height, width = matrix.shape
-
-    RegularizerSet = namedtuple('RegularizerSet', ['weight_decay', 'regularizer', 'optimizer'])
-    regularizer_list = []
-
-    if row_similarity_optimizer:
-        regularizer = reg.DirichletEnergyRegularization(height, reg.DirichletEnergyRegularizationMode.ROW_SIMILARITY).to(device)
-        optimizer = row_similarity_optimizer(regularizer.parameters())
-        regularizer_list.append(RegularizerSet(weight_decay=1e-4, regularizer=regularizer, optimizer=optimizer))
-
-    if col_similarity_optimizer:
-        regularizer = reg.DirichletEnergyRegularization(width, reg.DirichletEnergyRegularizationMode.COL_SIMILARITY).to(device)
-        optimizer = col_similarity_optimizer(regularizer.parameters())
-        regularizer_list.append(RegularizerSet(weight_decay=1e-4, regularizer=regularizer, optimizer=optimizer))
 
     nmae_losses = []
     for e in range(epochs):
@@ -95,19 +61,19 @@ def train_my_dmf_air(matrix_dimensions, loss_fn, model_optimizer, matrix, mask, 
         # Compute prediction error
         reconstructed_matrix = model(matrix * mask)
         loss = (
-            loss_fn(reconstructed_matrix, matrix, mask)
-            + sum(r.weight_decay * r.regularizer(reconstructed_matrix) for r in regularizer_list)
+            lossm.mse(reconstructed_matrix, matrix, mask)
+            + sum((r.weight_decay * r.regularizer(reconstructed_matrix) for r in regularizers), start=0)
         )
 
         # Backpropagation
-        model_optimizer.zero_grad()
-        for r in regularizer_list:
+        optimizer.zero_grad()
+        for r in regularizers:
             r.optimizer.zero_grad()
 
         loss.backward()
 
-        model_optimizer.step()
-        for r in regularizer_list:
+        optimizer.step()
+        for r in regularizers:
             r.optimizer.step()
 
         nmae_losses.append(lossm.nmae(reconstructed_matrix, matrix, mask).detach().cpu().numpy())
@@ -120,90 +86,23 @@ def train_my_dmf_air(matrix_dimensions, loss_fn, model_optimizer, matrix, mask, 
     return reconstructed_matrix, nmae_losses
 
 
-def train_dmf_air(matrix_dimensions, matrix, mask, epochs):
-    height, width = matrix.shape
-    reg_row = reg.auto_reg(height, 'row')
-    reg_col = reg.auto_reg(width, 'col')
-    regularizers = [reg_row, reg_col]
-    dmf = demo.BasicDeepMatrixFactorization(matrix_dimensions, regularizers) # Define model
+def run_paper_test(epochs, matrix_factor_dimensions, matrix, mask, regularizers=None):
+    if not regularizers:
+        regularizers = []
 
-    eta = [1e-4, 1e-4]
+    dmf = demo.BasicDeepMatrixFactorization(matrix_factor_dimensions, [r.regularizer for r in regularizers]) # Define model
+
+    eta = [r.weight_decay for r in regularizers]
 
     #Training model
     for ite in range(epochs):
         dmf.train(matrix, mu=1, eta=eta, mask_in=mask)
 
         if ite % 100 == 0:
+#             pprint.my_progress_bar(e, epochs, nmae_losses[-1])
             pprint.progress_bar(ite, epochs, dmf.loss_dict) # Format the loss of the output training and print out the training progress bar
 
         if ite % 5000 == 0:
             plot.gray_im(dmf.net.data.cpu().detach().numpy()) # Display the training image, you can set parameters to save the image
 
     return dmf.net.data, dmf.loss_dict['nmae_test']
-
-
-def write_csv(matrix, filename):
-    np.savetxt(f'{filename}.csv', matrix, delimiter=',')
-
-
-def drive(miss_mode, image_path, mask_path):
-    height = 240
-    width = 49
-    epochs = 15_001
-    rng = np.random.RandomState(seed=20210909)
-    row_indices = rng.permutation(height)
-    print(row_indices)
-    pic = csv_to_tensor(image_path)[row_indices].cuda()
-    # pic = dataloader.get_data(height=height,width=width,pic_name=image_path).cuda() # Read grayscale image
-
-    plot.gray_im(pic.cpu()) # Display grayscale image
-
-    transformer = dataloader.data_transform(z=pic,return_type='tensor')
-
-    if miss_mode is MissMode.RANDOM:
-        mask_in = transformer.get_drop_mask(rate=0.9) # 'rate' is the loss rate
-        mask_in[mask_in < 1] = 0
-    elif miss_mode is MissMode.PATCH:
-        mask_in = torch.ones(height, width).cuda()
-        mask_in[70:100, 150:190] = 0
-        mask_in[200:230, 200:230] = 0
-    elif miss_mode is MissMode.FIXED:
-        mask_in = dataloader.get_data(height=height, width=width, pic_name=mask_path)
-        mask_in[mask_in < 1] = 0
-    else:
-        raise ValueError(f'Invalid MissMode: {miss_mode.name}')
-
-    plot.gray_im(pic.cpu() * mask_in.cpu())
-
-    matrix_dimensions = [
-        (height, height),
-        (height, height),
-        (height, width)
-    ]
-    line_dict = {'x_plot': np.arange(0, epochs, 1)}
-    RCMatrix_MyDMF, line_dict['mydmf'] = train_my_dmf(
-        matrix_dimensions,
-        lossm.mse,
-        torch.optim.Adam,
-        pic,
-        mask_in.cuda(),
-        epochs
-    )
-    RCMatrix_MyDMF_AIR, line_dict['mydmfair'] = train_my_dmf_air(
-        matrix_dimensions,
-        lossm.mse,
-        torch.optim.Adam,
-        pic,
-        mask_in.cuda(),
-        epochs,
-        row_similarity_optimizer=torch.optim.Adam,
-        col_similarity_optimizer=torch.optim.Adam
-    )
-#     RCMatrix_DMF_AIR, line_dict['DMF+AIR'] = train_dmf_air(matrix_dimensions, pic, mask_in.cuda(), epochs)
-
-#     write_csv(row_indices.reshape(-1, 1), 'row_indices')
-#     write_csv(RCMatrix_MyDMF.cpu().detach().numpy(), 'RCMatrix_MyDMF')
-#     write_csv(RCMatrix_MyDMF_AIR.cpu().detach().numpy(), 'RCMatrix_MyDMF_AIR')
-#     write_csv(RCMatrix_DMF_AIR.cpu().detach().numpy(), 'RCMatrix_DMF_AIR')
-
-    plot.lines(line_dict, save_if=False, black_if=True, ylabel_name='NMAE')
