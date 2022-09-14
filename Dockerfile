@@ -4,7 +4,11 @@ LABEL taost=taost
 
 # Install OpenCV requirements
 RUN apt-get update
+RUN apt-get upgrade -y
 RUN apt-get install ffmpeg libsm6 libxext6  -y
+
+# Git
+RUN apt-get install git -y
 
 COPY ./requirements.txt .
 
@@ -12,7 +16,7 @@ RUN pip install -r requirements.txt
 
 COPY . .
 
-ENV CUDA_VISIBLE_DEVICES=3
+ENV CUDA_VISIBLE_DEVICES=0
 
 ENV PORT=8800
 
