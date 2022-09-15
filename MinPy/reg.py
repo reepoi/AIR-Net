@@ -84,6 +84,29 @@ class hc_reg(object):
         return t.trace(t.mm(M.T,t.mm(lap,M)))
 
 
+class TotalVariationRegularizationMode(enum.Enum):
+    ROW_SIMILARITY = enum.auto()
+    COL_SIMILARITY = enum.auto()
+
+
+class TotalVariationRegularization(nn.Module):
+    def __init__(self, dimension, fit_mode):
+        super().__init__()
+        self.total_variation = self.total_variation_function(fit_mode)
+        self.model = nn.Linear(dimension, dimension, bias=False)
+
+    def forward(self, X):
+        L = torch.exp(self.model.weight)
+        return self.total_variation(L, X)
+
+    def total_variation_function(self, fit_mode):
+        if fit_mode is TotalVariationRegularizationMode.ROW_SIMILARITY:
+            return lambda L, X: torch.sum(torch.max(torch.mm(L, X), dim=0)[0])
+        elif fit_mode is TotalVariationRegularizationMode.COL_SIMILARITY:
+            return lambda L, X: torch.sum(torch.max(torch.mm(X, L), dim=1)[0])
+        else:
+            raise ValueError(f'Invalid Total Variation Regularization Mode: {fit_mode}')
+
 class DirichletEnergyRegularizationMode(enum.Enum):
     ROW_SIMILARITY = enum.auto()
     COL_SIMILARITY = enum.auto()
