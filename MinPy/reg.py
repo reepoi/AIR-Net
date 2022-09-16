@@ -92,17 +92,27 @@ class TotalVariationRegularizationMode(enum.Enum):
 class TotalVariationRegularization(nn.Module):
     def __init__(self, dimension, fit_mode):
         super().__init__()
-        self.difference_matrix = self.build_difference_matrix(dimension)
+        self.total_variation = self.total_variation_function(dimension, fit_mode)
 
     def forward(self, X):
-        return torch.sum(torch.abs(torch.mm(self.difference_matrix, X)))
+        return self.total_variation(X)
     
     def build_difference_matrix(self, dimension):
-        identity_matrix = torch.eye(dimension, dimension)
+        identity_matrix = torch.eye(dimension, dimension).to(device)
         ones_matrix = torch.ones(dimension, dimension).to(device)
         U = torch.triu(ones_matrix, diagonal=-1).to(device)
-        difference_matrix = -(torch.tril(U * U.T) - 2 * I)
+        difference_matrix = -(torch.tril(U * U.T) - 2 * identity_matrix)
         return difference_matrix
+
+    def total_variation_function(self, dimension, fit_mode):
+        difference_matrix = self.build_difference_matrix(dimension)
+        if fit_mode is TotalVariationRegularizationMode.ROW_SIMILARITY:
+            differences = lambda X: torch.mm(difference_matrix, X)
+        elif fit_mode is TotalVariationRegularizationMode.COL_SIMILARITY:
+            differences = lambda X: torch.mm(difference_matrix, X.T)
+        else:
+            return ValueError('Invalid Total Variation Regularization Mode: {fit_mode}')
+        return lambda X: torch.sum(torch.abs(differences(X)))
 
 
 class DirichletEnergyRegularizationMode(enum.Enum):
