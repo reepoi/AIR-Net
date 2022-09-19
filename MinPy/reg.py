@@ -122,17 +122,14 @@ class TotalVariationRegularization(nn.Module):
 
     def total_variation_function(self, fit_mode):
         if fit_mode is TotalVariationRegularizationMode.ROW_SIMILARITY:
-            l1 = lambda X: self.l1_norm(X, X)
+            return lambda X, A: self.l1_norm(X, A.reshape(-1, 1) * X)
         elif fit_mode is TotalVariationRegularizationMode.COL_SIMILARITY:
-            l1 = lambda X: self.l1_norm(X.T, X.T)
+            return lambda X, A: self.l1_norm(X.T, A.reshape(-1, 1) * X.T)
         else:
             return ValueError('Invalid Total Variation Regularization Mode: {fit_mode}')
-        return lambda X, A: torch.sum(A.reshape(-1, 1) * torch.sum(torch.flatten(l1(X), start_dim=0, end_dim=1), dim=1))
 
     def l1_norm(self, X1, X2):
-        deltas = X1[:, None, :] - X2[None, :, :]
-        abs_deltas = torch.abs(deltas)
-        return abs_deltas
+        return torch.sum(torch.abs(X1[:, None, :] - X2[None, :, :]))
 
 class DirichletEnergyRegularizationMode(enum.Enum):
     ROW_SIMILARITY = enum.auto()
