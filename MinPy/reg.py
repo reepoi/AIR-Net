@@ -92,28 +92,47 @@ class TotalVariationRegularizationMode(enum.Enum):
 class TotalVariationRegularization(nn.Module):
     def __init__(self, dimension, fit_mode):
         super().__init__()
-        self.total_variation = self.total_variation_function(dimension, fit_mode)
+        self.total_variation = self.total_variation_function(fit_mode)
+        self.model = nn.Linear(dimension, dimension, bias=False)
+        self.matrix_ingredients = {
+            'ones_vector': torch.ones(dimension, 1).to(device),
+            'ones_matrix': torch.ones(dimension, dimension).to(device),
+            'identity_matrix': torch.eye(dimension).to(device)
+        }
 
     def forward(self, X):
-        return self.total_variation(X)
-    
-    def build_difference_matrix(self, dimension):
-        identity_matrix = torch.eye(dimension, dimension).to(device)
-        ones_matrix = torch.ones(dimension, dimension).to(device)
-        U = torch.triu(ones_matrix, diagonal=-1).to(device)
-        difference_matrix = -(torch.tril(U * U.T) - 2 * identity_matrix)
-        return difference_matrix
+        adjacency_matrix = self.build_adjacency_matrix()
+        return self.total_variation(X, torch.sqrt(adjacency_matrix))
 
-    def total_variation_function(self, dimension, fit_mode):
-        difference_matrix = self.build_difference_matrix(dimension)
+    def build_adjacency_matrix(self):
+        ones_vector = self.matrix_ingredients['ones_vector']
+        weights = self.model.weight
+        adjacency_matrix = (
+            torch.exp(weights + weights.T)
+            / torch.mm(ones_vector.reshape(1, -1), torch.mm(torch.exp(weights), ones_vector.reshape(-1, 1)))
+        )
+        return adjacency_matrix
+    
+    # def build_difference_matrix(self, dimension):
+    #     identity_matrix = torch.eye(dimension, dimension).to(device)
+    #     ones_matrix = torch.ones(dimension, dimension).to(device)
+    #     U = torch.triu(ones_matrix, diagonal=-1).to(device)
+    #     difference_matrix = -(torch.tril(U * U.T) - 2 * identity_matrix)
+    #     return difference_matrix
+
+    def total_variation_function(self, fit_mode):
         if fit_mode is TotalVariationRegularizationMode.ROW_SIMILARITY:
-            differences = lambda X: torch.mm(difference_matrix, X)
+            l1 = lambda X: self.l1_norm(X, X)
         elif fit_mode is TotalVariationRegularizationMode.COL_SIMILARITY:
-            differences = lambda X: torch.mm(difference_matrix, X.T)
+            l1 = lambda X: self.l1_norm(X.T, X.T)
         else:
             return ValueError('Invalid Total Variation Regularization Mode: {fit_mode}')
-        return lambda X: torch.sum(torch.abs(differences(X)))
+        return lambda X, A: torch.sum(A.reshape(-1, 1) * torch.sum(torch.flatten(l1(X), start_dim=0, end_dim=1), dim=1))
 
+    def l1_norm(self, X1, X2):
+        deltas = X1[:, None, :] - X2[None, :, :]
+        abs_deltas = torch.abs(deltas)
+        return abs_deltas
 
 class DirichletEnergyRegularizationMode(enum.Enum):
     ROW_SIMILARITY = enum.auto()
@@ -138,7 +157,6 @@ class DirichletEnergyRegularization(nn.Module):
         return self.dirichlet_energy(X, graph_laplacian_matrix)
     
     def build_adjacency_matrix(self):
-        dimension = self.model.weight.shape[0]
         ones_vector = self.matrix_ingredients['ones_vector']
         weights = self.model.weight
         adjacency_matrix = (
@@ -148,7 +166,6 @@ class DirichletEnergyRegularization(nn.Module):
         return adjacency_matrix
 
     def build_degree_matrix(self, adjacency_matrix):
-        dimension = self.model.weight.shape[0]
         ones_matrix, identity_matrix = self.matrix_ingredients['ones_matrix'], self.matrix_ingredients['identity_matrix']
         degree_matrix = torch.mm(adjacency_matrix, ones_matrix) * identity_matrix
         return degree_matrix
