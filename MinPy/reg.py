@@ -176,6 +176,40 @@ class DirichletEnergyRegularization(nn.Module):
             raise ValueError(f'Invalid Dirichlet Energy Regularization Mode: {fit_mode}')
 
 
+class DistanceRegularization:
+    def __init__(self, points, sigma):
+        dimension = len(points)
+        self.matrix_ingredients = {
+            'ones_matrix': torch.ones(dimension, dimension).to(device),
+            'identity_matrix': torch.eye(dimension).to(device)
+        }
+        self.distance_laplacian_matrix = self.build_distance_graph_laplacian_matrix(points, sigma)
+
+    def __call__(self, X):
+        return self.forward(X)
+
+    def forward(self, X):
+        return torch.trace(torch.mm(X.T, torch.mm(self.distance_laplacian_matrix, X)))
+
+    def build_distance_adjacency_matrix(self, points, sigma):
+        # This code is motivated by ||a - b||^2 = ||a||^2 - 2a^Tb + ||b||^2
+        points_points_T = torch.mm(points, points.T)
+        points_norm_sqrd = torch.diagonal(points_points_T).reshape(-1, 1)
+        pairwise_point_l2_sqrd_distance_matrix = (points_norm_sqrd - 2 * points_points_T).T + points_norm_sqrd
+        return torch.exp(pairwise_point_l2_sqrd_distance_matrix / sigma)
+
+    def build_degree_matrix(self, adjacency_matrix):
+        ones_matrix, identity_matrix = self.matrix_ingredients['ones_matrix'], self.matrix_ingredients['identity_matrix']
+        degree_matrix = torch.mm(adjacency_matrix, ones_matrix) * identity_matrix
+        return degree_matrix
+
+    def build_distance_graph_laplacian_matrix(self, points, sigma):
+        adjacency_matrix = self.build_distance_adjacency_matrix(points, sigma)
+        degree_matrix = self.build_degree_matrix(adjacency_matrix)
+        graph_laplacian_matrix = degree_matrix - adjacency_matrix
+        return graph_laplacian_matrix
+
+
 class MysteryRegularization(DirichletEnergyRegularization):
     def __init__(self, dimension, fit_mode):
         super().__init__(dimension, fit_mode)
