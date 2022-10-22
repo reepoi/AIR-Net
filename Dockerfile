@@ -1,27 +1,32 @@
-FROM pytorch/pytorch:1.11.0-cuda11.3-cudnn8-runtime
+FROM python:3.8-slim
+
+ENV NVIDIA_VISIBLE_DEVICES all
+
+ENV NVIDIA_DRIVER_CAPABILITIES compute,utility
+
+ENV CUDA_VERSION 11.0.0
+
+ENV LD_LIBRARY_PATH="/usr/local/cuda-11.0/lib64:$LD_LIBRARY_PATH"
+
+RUN apt-get -y update
+
+RUN apt -y install build-essential
+
+RUN apt-get -y install git
+
+# Install OpenCV requirements
+RUN apt-get install ffmpeg libsm6 libxext6  -y
 
 LABEL taost=taost
 
-# Install OpenCV requirements
-RUN apt-get update
-RUN apt-get upgrade -y
-RUN apt-get install ffmpeg libsm6 libxext6  -y
+COPY . /AIR-Net/
 
-# Git
-RUN apt-get install git -y
+RUN cd /AIR-Net/ && pip3 install -r requirements.txt
 
-COPY ./requirements.txt .
+ENV CUDA_VISIBLE_DEVICES=all
 
-RUN pip install -r requirements.txt
+ENV PORT=8811
 
-COPY . .
-
-ENV CUDA_VISIBLE_DEVICES=0
-
-ENV PORT=8800
-
-EXPOSE $PORT
-
-WORKDIR .
+EXPOSE 8811
 
 # CMD jupyter notebook --no-browser --allow-root --ip 0.0.0.0 --port $PORT
