@@ -19,7 +19,7 @@ class MyDeepMatrixFactorization(nn.Module):
         for d_row, d_col in matrix_factor_dimensions:
             lin = nn.Linear(d_row, d_col, bias=False)
             nn.init.normal_(lin.weight, mean=1e-3, std=1e-3)
-            seq.append(lin)
+            seq.add_module(str(len(seq)), lin)
         return seq
 
     def forward(self, _):
@@ -44,7 +44,7 @@ class DeepMatrixFactorization:
         for d_row, d_col in matrix_factor_dimensions:
             lin = nn.Linear(d_row, d_col, bias=False)
             nn.init.normal_(lin.weight, mean=1e-3, std=1e-3)
-            seq.append(lin)
+            seq.add_module(str(len(seq)), lin)
         if cuda_if:
             seq = seq.cuda()
         return seq
