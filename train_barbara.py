@@ -30,6 +30,7 @@ def do(mask_rate, epochs, weight_decay, num_factors, save_dir):
     matrix_factor_dimensions.append(main.Shape(rows=rows, cols=cols))
 
     wandb.config = {
+        'dataset': 'Barbara.jpg',
         'mask_rate': mask_rate,
         'epochs': epochs,
         'weight_decay_dirichlet_energy_row': weight_decay,
