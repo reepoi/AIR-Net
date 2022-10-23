@@ -16,10 +16,12 @@ def get_argparser():
                         help='number minus one of matrix factors with dimension rows x rows.')
     parser.add_argument('--save-dir', type=str,
                         help='where to save the figures.')
+    parser.add_argument('--epochs', type=int,
+                        help='number of epochs')
     return parser
 
 
-def do(mask_rates, weight_decay, num_factors, path):
+def do(mask_rates, epochs, weight_decay, num_factors, path):
     for mask_rate in mask_rates:
         matrix = main.dataloader.get_data(height=240,width=240,pic_name='./train_pics/Barbara.jpg').to(device)
 
@@ -31,7 +33,6 @@ def do(mask_rates, weight_decay, num_factors, path):
         matrix_factor_dimensions = [main.Shape(rows=rows, cols=rows) for _ in range(num_factors - 1)]
         matrix_factor_dimensions.append(main.Shape(rows=rows, cols=cols))
 
-        epochs = 20000
         RCMatrix_PaperDMFAIR, PaperDMFAIR_losses = main.run_paper_test(epochs, matrix_factor_dimensions, matrix, mask, regularizers=[
             main.paper_regularization(weight_decay, rows, 'row'),
             main.paper_regularization(weight_decay, cols, 'col')
@@ -48,4 +49,4 @@ if __name__ == '__main__':
     args = get_argparser().parse_args()
     with open(f'{args.save_dir}/args.json', 'w') as f:
         json.dump(args.__dict__, f, indent=2)
-    do([0.3, 0.5, 0.7, 0.9], args.weight_decay, args.num_factors, args.save_dir)
+    do([0.3, 0.5, 0.7, 0.9], args.epochs, args.weight_decay, args.num_factors, args.save_dir)
