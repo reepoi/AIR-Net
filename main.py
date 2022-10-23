@@ -7,6 +7,7 @@ from MinPy import demo, loss as lossm, net, reg
 import torch
 from MinPy.toolbox import dataloader, plot, pprint
 import numpy as np
+import wandb
 
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -110,6 +111,7 @@ def run_paper_test(epochs, matrix_factor_dimensions, matrix, mask, regularizers=
     #Training model
     for ite in range(epochs):
         dmf.train(matrix, mu=1, eta=eta, mask_in=mask)
+        wandb.log({'NMAE': dmf.loss_dict['nmae_test'][-1]})
 
         if ite % 100 == 0:
 #             pprint.my_progress_bar(e, epochs, nmae_losses[-1])

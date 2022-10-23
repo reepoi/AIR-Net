@@ -3,6 +3,7 @@ import json
 import numpy as np
 import torch
 import main
+import wandb
 
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -21,32 +22,46 @@ def get_argparser():
     return parser
 
 
-def do(mask_rates, epochs, weight_decay, num_factors, path):
-    for mask_rate in mask_rates:
-        matrix = main.dataloader.get_data(height=240,width=240,pic_name='./train_pics/Barbara.jpg').to(device)
+def do(mask_rate, epochs, weight_decay, num_factors, save_dir):
+    matrix = main.dataloader.get_data(height=240,width=240,pic_name='./train_pics/Barbara.jpg').to(device)
 
-        mask = main.get_bit_mask(matrix, rate=mask_rate)
+    rows, cols = matrix.shape
+    matrix_factor_dimensions = [main.Shape(rows=rows, cols=rows) for _ in range(num_factors - 1)]
+    matrix_factor_dimensions.append(main.Shape(rows=rows, cols=cols))
 
-        main.plot.gray_im((matrix * mask).cpu(), save_if=True, path=f'{path}/{mask_rate}Drop.png')
+    wandb.config = {
+        'mask_rate': mask_rate,
+        'epochs': epochs,
+        'weight_decay_dirichlet_energy_row': weight_decay,
+        'weight_decay_dirichlet_energy_col': weight_decay,
+        'matrix_factor_dimensions': [(s.rows, s.cols) for s in matrix_factor_dimensions]
+    }
+    wandb.init(project="AIR-Net Vector Fields", entity="taost", config=wandb.config)
 
-        rows, cols = matrix.shape
-        matrix_factor_dimensions = [main.Shape(rows=rows, cols=rows) for _ in range(num_factors - 1)]
-        matrix_factor_dimensions.append(main.Shape(rows=rows, cols=cols))
+    mask = main.get_bit_mask(matrix, rate=mask_rate)
 
-        RCMatrix_PaperDMFAIR, PaperDMFAIR_losses = main.run_paper_test(epochs, matrix_factor_dimensions, matrix, mask, regularizers=[
-            main.paper_regularization(weight_decay, rows, 'row'),
-            main.paper_regularization(weight_decay, cols, 'col')
-        ])
-        main.plot.gray_im(RCMatrix_PaperDMFAIR.detach().cpu(), save_if=True, path=f'{path}/{mask_rate}DropRecovered.png')
-        RCMatrices = {
-            'PaperDMFAIR': (PaperDMFAIR_losses, RCMatrix_PaperDMFAIR)
-        }
-        losses = {n: t[0] for n, t in RCMatrices.items()}
-        losses['x_plot'] = np.arange(0, epochs, 1)
-        main.plot.lines(losses, save_if=True, path=f'{path}/{mask_rate}DropNMAE.png', black_if=True, ylabel_name='NMAE')
+    wandb.log({'masked': wandb.Image((matrix * mask).cpu(), caption='Masked Matrix')})
+
+    RCmatrix, PaperDMFAIR_losses = main.run_paper_test(epochs, matrix_factor_dimensions, matrix, mask, regularizers=[
+        main.paper_regularization(weight_decay, rows, 'row'),
+        main.paper_regularization(weight_decay, cols, 'col')
+    ])
+
+    wandb.log({'recovered': wandb.Image(RCmatrix.detach().cpu(), caption='Recovered Matrix')})
+
+    # RCMatrices = {
+    #     'AIR-Net': (PaperDMFAIR_losses, RCmatrix)
+    # }
+    # losses = {n: t[0] for n, t in RCMatrices.items()}
+
+    # nmae_data = np.vstack((np.arange(0, epochs, 1), losses['AIR-Net'])).T
+    # nmae_plot = wandb.Table(data=nmae_data, columns=['Epochs', 'NMAE'])
+    # wandb.log({'nmae': wandb.plot.line(nmae_plot, x='Epochs', y='NMAE', title='NMAE Over Epochs')})
+
+    wandb.finish()
 
 if __name__ == '__main__':
+    mask_rates = [0.3, 0.5, 0.7, 0.9]
     args = get_argparser().parse_args()
-    with open(f'{args.save_dir}/args.json', 'w') as f:
-        json.dump(args.__dict__, f, indent=2)
-    do([0.3, 0.5, 0.7, 0.9], args.epochs, args.weight_decay, args.num_factors, args.save_dir)
+    for mr in mask_rates:
+        do(mr, **args.__dict__)
