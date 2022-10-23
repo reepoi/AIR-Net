@@ -7,7 +7,7 @@ import cv2
 import random
 
 
-def get_data(width=100,height=100,pic_name=None):
+def get_data(width=100,height=100,pic_name=None, color=False):
     # 合成或从路径读取图像
     # 返回值为tensor类型的数据，大小为length*width
     if pic_name == None:
@@ -17,9 +17,12 @@ def get_data(width=100,height=100,pic_name=None):
         z = np.sin(25*np.pi*np.sin(np.pi/3*np.sqrt(x1**2+y1**2)))
         z = z.astype('float32')/z.max()
     else:
-        img = cv2.imread(pic_name)
-        img = cv2.resize(img, (height,width))
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        if color:
+            img = cv2.imread(pic_name, cv2.IMREAD_COLOR)
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float32)
+        else:
+            img = cv2.imread(pic_name)
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float32)
         z = img.astype('float32')/255
 
     return t.tensor(z)

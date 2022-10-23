@@ -101,18 +101,16 @@ class TotalVariationRegularization(nn.Module):
         }
 
     def forward(self, X):
+        center = X[1:X.shape[0]-1,1:X.shape[1]-1]
+        up = X[1:X.shape[0]-1,0:X.shape[1]-2]
+        down = X[1:X.shape[0]-1,2:X.shape[1]]
+        left = X[0:X.shape[0]-2,1:X.shape[1]-1]
+        right = X[2:X.shape[0],1:X.shape[1]-1]
+        Var = 4*center-up-down-left-right
+        return t.norm(Var,p=1)/X.shape[0]
         adjacency_matrix = self.build_adjacency_matrix()
         return self.total_variation(X, torch.sqrt(adjacency_matrix))
 
-    def build_adjacency_matrix(self):
-        ones_vector = self.matrix_ingredients['ones_vector']
-        weights = self.model.weight
-        adjacency_matrix = (
-            torch.exp(weights + weights.T)
-            / torch.mm(ones_vector.reshape(1, -1), torch.mm(torch.exp(weights), ones_vector.reshape(-1, 1)))
-        )
-        return adjacency_matrix
-    
     # def build_difference_matrix(self, dimension):
     #     identity_matrix = torch.eye(dimension, dimension).to(device)
     #     ones_matrix = torch.ones(dimension, dimension).to(device)
@@ -130,6 +128,7 @@ class TotalVariationRegularization(nn.Module):
 
     def l1_norm(self, X1, X2):
         return torch.sum(torch.abs(X1[:, None, :] - X2[None, :, :]))
+
 
 class DirichletEnergyRegularizationMode(enum.Enum):
     ROW_SIMILARITY = enum.auto()
