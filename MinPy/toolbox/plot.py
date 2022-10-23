@@ -2,6 +2,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 from scipy import misc
+
+
 def im(img,path='./test.jpg',save_if=False):
     fig, ax = plt.subplots()
     show_pic = np.clip(img,0,1)
@@ -26,6 +28,13 @@ def gray_im(img,path='./test.jpg',save_if=False):
     return fig, ax
 
 
+def quiver(X, Y, U, V, path='./test.jpg', save_if=False):
+    fig, ax = plt.subplots()
+    ax.quiver(X, Y, U, V)
+    if save_if:
+        fig.savefig(path)
+        print('Saved', path)
+    return fig, ax
 
 def lines(line_dict,xlabel_name='epoch',ylabel_name='MSE',ylog_if=False,save_if=False,path='./lines.jpg',black_if=False):
     fig, ax = plt.subplots()
