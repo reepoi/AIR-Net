@@ -50,15 +50,6 @@ def do(mask_rate, epochs, weight_decay, num_factors, save_dir):
 
     wandb.log({'recovered': wandb.Image(RCmatrix.detach().cpu(), caption='Recovered Matrix')})
 
-    # RCMatrices = {
-    #     'AIR-Net': (PaperDMFAIR_losses, RCmatrix)
-    # }
-    # losses = {n: t[0] for n, t in RCMatrices.items()}
-
-    # nmae_data = np.vstack((np.arange(0, epochs, 1), losses['AIR-Net'])).T
-    # nmae_plot = wandb.Table(data=nmae_data, columns=['Epochs', 'NMAE'])
-    # wandb.log({'nmae': wandb.plot.line(nmae_plot, x='Epochs', y='NMAE', title='NMAE Over Epochs')})
-
     wandb.finish()
 
 if __name__ == '__main__':

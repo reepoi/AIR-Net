@@ -100,7 +100,7 @@ def run_test(epochs, matrix_factor_dimensions, matrix, mask, regularizers=None):
     return reconstructed_matrix, nmae_losses
 
 
-def run_paper_test(epochs, matrix_factor_dimensions, matrix, mask, regularizers=None):
+def run_paper_test(epochs, matrix_factor_dimensions, matrix, mask, regularizers=None, loss_log_suffix=''):
     if not regularizers:
         regularizers = []
 
@@ -111,7 +111,7 @@ def run_paper_test(epochs, matrix_factor_dimensions, matrix, mask, regularizers=
     #Training model
     for ite in range(epochs):
         dmf.train(matrix, mu=1, eta=eta, mask_in=mask)
-        wandb.log({'NMAE': dmf.loss_dict['nmae_test'][-1]})
+        wandb.log({f'NMAE_{log_suffix}': dmf.loss_dict['nmae_test'][-1]})
 
         if ite % 100 == 0:
 #             pprint.my_progress_bar(e, epochs, nmae_losses[-1])
