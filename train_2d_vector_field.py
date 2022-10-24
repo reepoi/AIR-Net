@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 import torch
 import main
 import wandb
+import io
+import PIL
 
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -25,11 +27,23 @@ def get_argparser():
     return parser
 
 
-def do(mask_rates, epochs, weight_decay, num_factors, grid_density, save_dir):
+def matplotlib_to_PIL_Image(fig):
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', bbox_inches='tight')
+    buf.seek(0)
+    img = PIL.Image.open(buf)
+    return img
+
+
+def do(mask_rate, epochs, weight_decay, num_factors, grid_density, save_dir):
     ts = np.linspace(-2, 2, num=grid_density)
     xx, yy = np.meshgrid(ts, ts)
     us = torch.tensor(np.sin(2 * xx + 2 * yy)).to(device)
     vs = torch.tensor(np.cos(2 * xx - 2 * yy)).to(device)
+
+    rows, cols = us.shape
+    matrix_factor_dimensions = [main.Shape(rows=rows, cols=rows) for _ in range(num_factors - 1)]
+    matrix_factor_dimensions.append(main.Shape(rows=rows, cols=cols))
 
     wandb.config = {
         'dataset': 'F = (sin(2x + 2y), cos(2x - 2y))',
@@ -45,29 +59,23 @@ def do(mask_rates, epochs, weight_decay, num_factors, grid_density, save_dir):
     mask = main.get_bit_mask(us, rate=mask_rate)
 
     fig, ax = main.plot.quiver(xx, yy, (us * mask).cpu(), (vs * mask).cpu())
-    wandb.log({'masked': fig})
-
-    rows, cols = us.shape
-    matrix_factor_dimensions = [main.Shape(rows=rows, cols=rows) for _ in range(num_factors - 1)]
-    matrix_factor_dimensions.append(main.Shape(rows=rows, cols=cols))
+    wandb.log({'masked': wandb.Image(matplotlib_to_PIL_Image(fig))})
     print(matrix_factor_dimensions)
 
     print('Train us')
     RCus, us_losses = main.run_paper_test(epochs, matrix_factor_dimensions, us, mask, regularizers=[
         main.paper_regularization(weight_decay, rows, 'row'),
         main.paper_regularization(weight_decay, cols, 'col'),
-        loss_log_suffix='x-component'
-    ])
+    ], loss_log_suffix='x-component')
     print('\n')
     print('Train vs')
     RCvs, vs_losses = main.run_paper_test(epochs, matrix_factor_dimensions, vs, mask, regularizers=[
         main.paper_regularization(weight_decay, rows, 'row'),
         main.paper_regularization(weight_decay, cols, 'col'),
-        loss_log_suffix='y-component'
-    ])
+    ], loss_log_suffix='y-component')
 
     fig, ax = main.plot.quiver(xx, yy, RCus.cpu(), RCvs.cpu())
-    wandb.log({'masked': fig})
+    wandb.log({'masked': wandb.Image(matplotlib_to_PIL_Image(fig))})
 
     wandb.finish()
 
