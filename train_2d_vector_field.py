@@ -75,7 +75,7 @@ def do(mask_rate, epochs, weight_decay, num_factors, grid_density, save_dir):
     ], loss_log_suffix='y-component')
 
     fig, ax = main.plot.quiver(xx, yy, RCus.detach().cpu(), RCvs.detach().cpu())
-    wandb.log({'masked': wandb.Image(matplotlib_to_PIL_Image(fig))})
+    wandb.log({'recovered': wandb.Image(matplotlib_to_PIL_Image(fig))})
 
     wandb.finish()
 
