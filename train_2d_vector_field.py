@@ -74,7 +74,7 @@ def do(mask_rate, epochs, weight_decay, num_factors, grid_density, save_dir):
         main.paper_regularization(weight_decay, cols, 'col'),
     ], loss_log_suffix='y-component')
 
-    fig, ax = main.plot.quiver(xx, yy, RCus.cpu(), RCvs.cpu())
+    fig, ax = main.plot.quiver(xx, yy, RCus.detach().cpu(), RCvs.detach().cpu())
     wandb.log({'masked': wandb.Image(matplotlib_to_PIL_Image(fig))})
 
     wandb.finish()
