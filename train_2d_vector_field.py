@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch
 import main
+from MinPy import reg
 import wandb
 import io
 import PIL
@@ -36,10 +37,11 @@ def matplotlib_to_PIL_Image(fig):
 
 
 def do(mask_rate, epochs, weight_decay, num_factors, grid_density, save_dir):
-    ts = np.linspace(-2, 2, num=grid_density)
-    xx, yy = np.meshgrid(ts, ts)
-    us = torch.tensor(np.sin(2 * xx + 2 * yy)).to(device)
-    vs = torch.tensor(np.cos(2 * xx - 2 * yy)).to(device)
+    ts = torch.linspace(-2, 2, grid_density).to(device)
+    xx, yy = torch.meshgrid(ts, ts)
+    us = torch.sin(2 * xx + 2 * yy).to(device)
+    vs = torch.cos(2 * xx - 2 * yy).to(device)
+    points = torch.vstack((xx.reshape(-1), yy.reshape(-1))).to(device).T
 
     rows, cols = us.shape
     matrix_factor_dimensions = [main.Shape(rows=rows, cols=rows) for _ in range(num_factors - 1)]
@@ -54,27 +56,48 @@ def do(mask_rate, epochs, weight_decay, num_factors, grid_density, save_dir):
         'weight_decay_dirichlet_energy_col': weight_decay,
         'matrix_factor_dimensions': [(s.rows, s.cols) for s in matrix_factor_dimensions]
     }
-    wandb.init(project="AIR-Net Vector Fields", entity="taost", config=wandb.config)
+    # wandb.init(project="AIR-Net Vector Fields", entity="taost", config=wandb.config)
+    wandb.init(mode="disabled", project="AIR-Net Vector Fields", entity="taost", config=wandb.config)
 
     mask = main.get_bit_mask(us, rate=mask_rate)
 
-    fig, ax = main.plot.quiver(xx, yy, (us * mask).cpu(), (vs * mask).cpu())
+    fig, ax = main.plot.quiver(xx.cpu(), yy.cpu(), (us * mask).cpu(), (vs * mask).cpu())
+    fig.savefig(f'{save_dir}/{mask_rate}Drop.png')
     wandb.log({'masked': wandb.Image(matplotlib_to_PIL_Image(fig))})
     print(matrix_factor_dimensions)
 
-    print('Train us')
-    RCus, us_losses = main.run_paper_test(epochs, matrix_factor_dimensions, us, mask, regularizers=[
-        main.paper_regularization(weight_decay, rows, 'row'),
-        main.paper_regularization(weight_decay, cols, 'col'),
-    ], loss_log_suffix='x-component')
-    print('\n')
-    print('Train vs')
-    RCvs, vs_losses = main.run_paper_test(epochs, matrix_factor_dimensions, vs, mask, regularizers=[
-        main.paper_regularization(weight_decay, rows, 'row'),
-        main.paper_regularization(weight_decay, cols, 'col'),
-    ], loss_log_suffix='y-component')
+    # print(f'Mask Rate: {mask_rate}')
+    # print('Train us')
+    # RCus, us_losses = main.run_paper_test(epochs, matrix_factor_dimensions, us, mask, regularizers=[
+    #     main.paper_regularization(weight_decay, rows, 'row'),
+    #     main.paper_regularization(weight_decay, cols, 'col'),
+    # ], loss_log_suffix='x-component')
+    # print('Train vs')
+    # RCvs, vs_losses = main.run_paper_test(epochs, matrix_factor_dimensions, vs, mask, regularizers=[
+    #     main.paper_regularization(weight_decay, rows, 'row'),
+    #     main.paper_regularization(weight_decay, cols, 'col'),
+    # ], loss_log_suffix='y-component')
 
-    fig, ax = main.plot.quiver(xx, yy, RCus.detach().cpu(), RCvs.detach().cpu())
+    print(f'Mask Rate: {mask_rate}')
+    print('Train us')
+    RCus, us_losses = main.run_test(epochs, matrix_factor_dimensions, us, mask, regularizers=[
+        main.dirichlet_energy_regularization(1e-8, rows, reg.DirichletEnergyRegularizationMode.ROW_SIMILARITY),
+        main.dirichlet_energy_regularization(1e-8, cols, reg.DirichletEnergyRegularizationMode.COL_SIMILARITY),
+        main.total_variation_regularization(1e-6, rows, reg.TotalVariationRegularizationMode.ROW_VARIATION),
+        main.total_variation_regularization(1e-6, cols, reg.TotalVariationRegularizationMode.COL_VARIATION),
+        main.distance_regularization(1e-8, points, 1e3)
+    ])
+    print('Train vs')
+    RCvs, vs_losses = main.run_test(epochs, matrix_factor_dimensions, vs, mask, regularizers=[
+        main.dirichlet_energy_regularization(1e-8, rows, reg.DirichletEnergyRegularizationMode.ROW_SIMILARITY),
+        main.dirichlet_energy_regularization(1e-8, cols, reg.DirichletEnergyRegularizationMode.COL_SIMILARITY),
+        main.total_variation_regularization(1e-6, rows, reg.TotalVariationRegularizationMode.ROW_VARIATION),
+        main.total_variation_regularization(1e-6, cols, reg.TotalVariationRegularizationMode.COL_VARIATION),
+        main.distance_regularization(1e-8, points, 1e3)
+    ])
+
+    fig, ax = main.plot.quiver(xx.cpu(), yy.cpu(), RCus.detach().cpu(), RCvs.detach().cpu())
+    fig.savefig(f'{save_dir}/{mask_rate}Recovered.png')
     wandb.log({'recovered': wandb.Image(matplotlib_to_PIL_Image(fig))})
 
     wandb.finish()
@@ -82,6 +105,7 @@ def do(mask_rate, epochs, weight_decay, num_factors, grid_density, save_dir):
 
 if __name__ == '__main__':
     mask_rates = [0.3, 0.5, 0.7, 0.9]
+    mask_rates = [0.3]
     args = get_argparser().parse_args()
     for mr in mask_rates:
         do(mr, **args.__dict__)

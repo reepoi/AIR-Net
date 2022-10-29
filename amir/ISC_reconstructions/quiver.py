@@ -9,8 +9,10 @@ def nmae(pre,rel,mask=None):
     def translate_mask(mask):
         u,v = np.where(mask == 1)
         return u,v
-    u,v = translate_mask(1-mask)
-    return np.abs(pre-rel)[u,v].mean()/(np.max(rel)-np.min(rel))
+    x,y = translate_mask(1-mask)
+    import pdb
+    pdb.set_trace()
+    return np.abs(pre-rel)[x,y].mean()/(np.max(rel)-np.min(rel))
 
 
 if __name__ == '__main__':
@@ -20,6 +22,8 @@ if __name__ == '__main__':
     xx, yy = np.meshgrid(ts, ts)
     us = np.sin(2 * xx + 2 * yy)
     vs = np.cos(2 * xx - 2 * yy)
+    us = pd.read_csv(f'{mask_rate}Drop_us.csv', header=None).to_numpy()
+    vs = pd.read_csv(f'{mask_rate}Drop_vs.csv', header=None).to_numpy()
     usMask = pd.read_csv(f'{mask_rate}DropMask_us.csv', header=None).to_numpy()
     vsMask = pd.read_csv(f'{mask_rate}DropMask_vs.csv', header=None).to_numpy()
     usRec = pd.read_csv(f'{mask_rate}DropRecovered_us.csv', header=None).to_numpy()
@@ -27,6 +31,6 @@ if __name__ == '__main__':
     print(f'NMAE (us): {nmae(usRec, us, mask=usMask)}')
     print(f'NMAE (vs): {nmae(vsRec, vs, mask=vsMask)}')
 
-    # fig, ax = plt.subplots()
-    # ax.quiver(xx, yy, us, vs)
-    # fig.savefig(f'{mask_rate}DropRecovered.png')
+    fig, ax = plt.subplots()
+    ax.quiver(xx, yy, us, vs)
+    fig.savefig(f'{mask_rate}Drop.png')

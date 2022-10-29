@@ -1,4 +1,3 @@
-from functools import reduce
 import torch.nn as nn
 import torch as t
 from torch.autograd import Variable
@@ -24,9 +23,8 @@ class MyDeepMatrixFactorization(nn.Module):
 
     def forward(self, _):
         matrix_factors = list(self.matrix_factors.children())
-        weight = matrix_factors[0].weight.t()
+        weight = matrix_factors[0].weight
         for c in matrix_factors[1:]:
-            assert isinstance(c, nn.Linear) and c.bias is None
             weight = c(weight)
         return weight
 

@@ -7,6 +7,7 @@ import loss
 import net
 
 cuda_if = t.cuda.is_available()
+device = 'cuda' if t.cuda.is_available() else 'cpu'
 
 class BasicDeepMatrixFactorization:
     def __init__(self, matrix_factor_dimensions, regularizers):
@@ -56,7 +57,7 @@ class BasicDeepMatrixFactorization:
         with t.no_grad():
             self.loss_dict['loss_fid'].append(loss_fid.detach().cpu().numpy())
             self.loss_dict['loss_all'].append(loss_all.detach().cpu().numpy())
-            pic_know = pic*mask_in.cuda()
+            pic_know = pic*mask_in.to(device)
             if fid_name == 'inv':
                 final_img = t.mm(t.mm(pic_know,self.net.data),pic_know)
             elif fid_name == 'idl':

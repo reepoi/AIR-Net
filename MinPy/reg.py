@@ -85,49 +85,25 @@ class hc_reg(object):
 
 
 class TotalVariationRegularizationMode(enum.Enum):
-    ROW_SIMILARITY = enum.auto()
-    COL_SIMILARITY = enum.auto()
+    ROW_VARIATION = enum.auto()
+    COL_VARIATION = enum.auto()
 
 
 class TotalVariationRegularization(nn.Module):
     def __init__(self, dimension, fit_mode):
         super().__init__()
         self.total_variation = self.total_variation_function(fit_mode)
-        self.model = nn.Linear(dimension, dimension, bias=False)
-        self.matrix_ingredients = {
-            'ones_vector': torch.ones(dimension, 1).to(device),
-            'ones_matrix': torch.ones(dimension, dimension).to(device),
-            'identity_matrix': torch.eye(dimension).to(device)
-        }
 
     def forward(self, X):
-        center = X[1:X.shape[0]-1,1:X.shape[1]-1]
-        up = X[1:X.shape[0]-1,0:X.shape[1]-2]
-        down = X[1:X.shape[0]-1,2:X.shape[1]]
-        left = X[0:X.shape[0]-2,1:X.shape[1]-1]
-        right = X[2:X.shape[0],1:X.shape[1]-1]
-        Var = 4*center-up-down-left-right
-        return t.norm(Var,p=1)/X.shape[0]
-        adjacency_matrix = self.build_adjacency_matrix()
-        return self.total_variation(X, torch.sqrt(adjacency_matrix))
-
-    # def build_difference_matrix(self, dimension):
-    #     identity_matrix = torch.eye(dimension, dimension).to(device)
-    #     ones_matrix = torch.ones(dimension, dimension).to(device)
-    #     U = torch.triu(ones_matrix, diagonal=-1).to(device)
-    #     difference_matrix = -(torch.tril(U * U.T) - 2 * identity_matrix)
-    #     return difference_matrix
+        return self.total_variation(X)
 
     def total_variation_function(self, fit_mode):
-        if fit_mode is TotalVariationRegularizationMode.ROW_SIMILARITY:
-            return lambda X, A: self.l1_norm(X, A.reshape(-1, 1) * X)
-        elif fit_mode is TotalVariationRegularizationMode.COL_SIMILARITY:
-            return lambda X, A: self.l1_norm(X.T, A.reshape(-1, 1) * X.T)
+        if fit_mode is TotalVariationRegularizationMode.ROW_VARIATION:
+            return lambda X: torch.sum(torch.abs(torch.diff(X)))
+        elif fit_mode is TotalVariationRegularizationMode.COL_VARIATION:
+            return lambda X: torch.sum(torch.abs(torch.diff(X, dim=0)))
         else:
-            return ValueError('Invalid Total Variation Regularization Mode: {fit_mode}')
-
-    def l1_norm(self, X1, X2):
-        return torch.sum(torch.abs(X1[:, None, :] - X2[None, :, :]))
+            raise ValueError(f'Invalid Total Variation Regularization Mode: {fit_mode}')
 
 
 class DirichletEnergyRegularizationMode(enum.Enum):
@@ -213,11 +189,15 @@ class MysteryRegularization(DirichletEnergyRegularization):
     def __init__(self, dimension, fit_mode):
         super().__init__(dimension, fit_mode)
         self.softmin = nn.Softmin(1)
+        self.matrix_ingredients = {
+            'ones_matrix': torch.ones(dimension, dimension).to(device),
+            'identity_matrix': torch.eye(dimension).to(device)
+        }
 
     def build_adjacency_matrix(self):
         dimension = self.model.weight.shape[0]
-        ones_matrix = torch.ones(dimension, dimension).to(device)
-        identity_matrix = torch.eye(dimension).to(device)
+        ones_matrix = self.matrix_ingredients['ones_matrix']
+        identity_matrix = self.matrix_ingredients['identity_matrix']
         weights = self.softmin(self.model.weight)
         adjacency_matrix = (weights + weights.T) * (ones_matrix - identity_matrix)
         return adjacency_matrix
@@ -239,13 +219,14 @@ class auto_reg(object):
                 self.A_0 = nn.Linear(n,n,bias=False)
                 self.softmin = nn.Softmin(1)
                 self.mode = mode
+                self.matrix_ingredients = {
+                    'ones_vector': t.ones(self.n, 1).to(device),
+                    'identity_matrix': t.eye(self.n).to(device)
+                }
 
             def forward(self,W):
-                Ones = t.ones(self.n,1)
-                I_n = t.from_numpy(np.eye(self.n)).to(t.float32)
-                if cuda_if:
-                    Ones = Ones.cuda()
-                    I_n = I_n.cuda()
+                Ones = self.matrix_ingredients['ones_vector']
+                I_n = self.matrix_ingredients['identity_matrix']
                 A_0 = self.A_0.weight # A_0 \in \mathbb{R}^{n \times n}
                 A_1 = self.softmin(A_0) # A_1 中的元素的取值 \in (0,1) 和为1
                 A_2 = (A_1+A_1.T)/2 # A_2 一定是对称的

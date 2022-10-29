@@ -65,6 +65,8 @@ def run_test(epochs, matrix_factor_dimensions, matrix, mask, regularizers=None):
 
     model = net.MyDeepMatrixFactorization(matrix_factor_dimensions).to(device)
     optimizer = torch.optim.Adam(model.parameters())
+    regularizer_optimizers = [r.optimizer for r in regularizers if r.optimizer]
+
     model.train()
     height, width = matrix.shape
 
@@ -80,7 +82,6 @@ def run_test(epochs, matrix_factor_dimensions, matrix, mask, regularizers=None):
 
         # Backpropagation
         optimizer.zero_grad()
-        regularizer_optimizers = [r.optimizer for r in regularizers if r.optimizer]
         for o in regularizer_optimizers:
             o.zero_grad()
 
