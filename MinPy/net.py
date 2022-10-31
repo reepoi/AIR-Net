@@ -23,7 +23,7 @@ class MyDeepMatrixFactorization(nn.Module):
 
     def forward(self, _):
         matrix_factors = list(self.matrix_factors.children())
-        weight = matrix_factors[0].weight
+        weight = matrix_factors[0].weight.T
         for c in matrix_factors[1:]:
             weight = c(weight)
         return weight

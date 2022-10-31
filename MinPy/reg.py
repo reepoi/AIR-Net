@@ -164,7 +164,8 @@ class DistanceRegularization:
         return self.forward(X)
 
     def forward(self, X):
-        return torch.trace(torch.mm(X.T, torch.mm(self.distance_laplacian_matrix, X)))
+        vecX = X.reshape(-1)
+        return torch.dot(vecX, torch.mv(self.distance_laplacian_matrix, vecX))
 
     def build_distance_adjacency_matrix(self, points, sigma):
         # This code is motivated by ||a - b||^2 = ||a||^2 - 2a^Tb + ||b||^2

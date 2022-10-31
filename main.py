@@ -60,7 +60,9 @@ def paper_regularization(weight_decay, dimension, similarity_type):
 
 
 def run_test(epochs, matrix_factor_dimensions, matrix, mask, regularizers=None):
-    if not regularizers:
+    if regularizers:
+        regularizers = [r for r in regularizers if r.weight_decay != 0]
+    else:
         regularizers = []
 
     model = net.MyDeepMatrixFactorization(matrix_factor_dimensions).to(device)
@@ -95,6 +97,7 @@ def run_test(epochs, matrix_factor_dimensions, matrix, mask, regularizers=None):
 
         if e % 100 == 0:
             pprint.my_progress_bar(e, epochs, nmae_losses[-1])
+            # pprint.my_progress_bar(e, epochs, loss)
         # if e % 5000 == 0:
         #     plot.gray_im(reconstructed_matrix.cpu().detach().numpy())
 
@@ -102,7 +105,9 @@ def run_test(epochs, matrix_factor_dimensions, matrix, mask, regularizers=None):
 
 
 def run_paper_test(epochs, matrix_factor_dimensions, matrix, mask, regularizers=None, loss_log_suffix=''):
-    if not regularizers:
+    if regularizers:
+        regularizers = [r for r in regularizers if r.weight_decay != 0]
+    else:
         regularizers = []
 
     dmf = demo.BasicDeepMatrixFactorization(matrix_factor_dimensions, [r.regularizer for r in regularizers]) # Define model
