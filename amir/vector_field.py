@@ -1,26 +1,33 @@
 import csv
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
+import scipy.interpolate as interp
 
-FILE_LOCATION = 'vel_2Daneu_crop.0.csv'
+FILE_LOCATION = 'cropped_2D_aneurysm/vel_2Daneu_crop.0.csv'
 
-with open(FILE_LOCATION) as f:
-    reader = csv.reader(f, delimiter=',')
-    rows = []
-    for row in reader:
-        rows.append(row)
+data_pd = pd.read_csv(FILE_LOCATION)[0:100]
+u_col, v_col, _, x_col, y_col, _ = data_pd.columns
+data_pd = data_pd.set_index([x_col, y_col]) # set index to (x, y)
+data_pd = data_pd.groupby(level=data_pd.index.names).first() # remove duplicate (x, y)
+# data_pd = data_pd[~data_pd.index.duplicated(keep='first')] # remove duplicate points
+# data_dict = data_pd.to_dict('index') # create mapping (x, y) -> (u, v)
 
-# skip the CSV header
-rows = rows[1:]
+xs = data_pd.index.get_level_values(x_col).to_numpy()
+ys = data_pd.index.get_level_values(y_col).to_numpy()
+us = data_pd[u_col].to_numpy()
+vs = data_pd[v_col].to_numpy()
 
-# skip the CSV header
-data = np.array(rows, dtype=np.float64)
+interp_us = interp.interp2d(xs, ys, us)
+interp_vs = interp.interp2d(xs, ys, vs)
 
-xs, ys = data[:, 3], data[:, 4] # spatial coordinates
-us, vs = data[:, 0], data[:, 1] # velocity vector components
+grid_density = 100
+grid_xs = np.linspace(np.min(xs), np.max(xs), num=grid_density)
+grid_ys = np.linspace(np.min(ys), np.max(ys), num=grid_density)
+grid_us = interp_us(grid_xs, grid_ys)
+grid_vs = interp_vs(grid_xs, grid_ys)
 
-# you may adjust the scale parameter, or remove it to use matplotlib's auto-scaling
-# the larger the scale parameter value, the smaller the vectors are in the plot
-plt.quiver(xs, ys, us, vs, scale=400)
+fig, ax = plt.subplots()
+ax.quiver(grid_xs, grid_ys, grid_us, grid_vs) #, scale=400)
 
-plt.show()
+fig.savefig('vector_field.png')
