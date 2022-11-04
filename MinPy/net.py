@@ -15,9 +15,14 @@ class MyDeepMatrixFactorization(nn.Module):
 
     def build_matrix_factorization(self, matrix_factor_dimensions):
         seq = nn.Sequential()
+        init_scale = 1e-3
+        depth = len(matrix_factor_dimensions) - 1
+        n = matrix_factor_dimensions[0].rows
+        scale = init_scale**(1. / depth) * n**(-0.5)
+        # scale = 1e-3
         for d_row, d_col in matrix_factor_dimensions:
             lin = nn.Linear(d_row, d_col, bias=False)
-            nn.init.normal_(lin.weight, mean=1e-3, std=1e-3)
+            nn.init.normal_(lin.weight, mean=0, std=scale)
             seq.add_module(str(len(seq)), lin)
         return seq
 

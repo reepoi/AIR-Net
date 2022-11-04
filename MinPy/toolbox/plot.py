@@ -28,9 +28,12 @@ def gray_im(img,path='./test.jpg',save_if=False):
     return fig, ax
 
 
-def quiver(X, Y, U, V, path='./test.jpg', save_if=False):
+def quiver(X, Y, U, V, path='./test.jpg', save_if=False, scale=None):
     fig, ax = plt.subplots()
-    ax.quiver(X, Y, U, V)
+    if scale:
+        ax.quiver(X, Y, U, V, scale=scale)
+    else:
+        ax.quiver(X, Y, U, V)
     if save_if:
         fig.savefig(path)
         print('Saved', path)

@@ -96,7 +96,12 @@ def run_test(epochs, matrix_factor_dimensions, matrix, mask, regularizers=None):
         nmae_losses.append(lossm.nmae(reconstructed_matrix, matrix, mask).detach().cpu().numpy())
 
         if e % 100 == 0:
-            pprint.my_progress_bar(e, epochs, nmae_losses[-1])
+            print(f'e: {e}, mse+reg: {loss}, nmae: {nmae_losses[-1]}')
+            # pprint.my_progress_bar(e, epochs, nmae_losses[-1])
+        # if nmae_losses[-1] < 1e-4:
+        if loss < 1e-4:
+            print(f'e: {e}, mse+reg: {loss}, nmae: {nmae_losses[-1]}')
+            break
             # pprint.my_progress_bar(e, epochs, loss)
         # if e % 5000 == 0:
         #     plot.gray_im(reconstructed_matrix.cpu().detach().numpy())

@@ -19,7 +19,7 @@ def rmse(pre,rel,mask=None):
 
 
 def nmae(pre,rel,mask=None):
-    if mask == None:
+    if mask is None:
         mask = t.ones(pre.shape)
     if cuda_if:
         mask = mask.cuda()
@@ -28,6 +28,11 @@ def nmae(pre,rel,mask=None):
         return u,v
     u,v = translate_mask(1-mask)
     return t.abs(pre-rel)[u,v].mean()/(t.max(rel)-t.min(rel))
+
+
+def my_nmae(yhat, y):
+    return t.abs(yhat - y).mean() / (t.max(y) - t.min(y))
+
 
 def mse_inv(pre,rel,mask=None):
     # loss = (rel-rel*pre*rel)\odot mask
