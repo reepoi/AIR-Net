@@ -59,7 +59,9 @@ def paper_regularization(weight_decay, dimension, similarity_type):
     return Regularizer(weight_decay=weight_decay, regularizer=regularizer, optimizer=None)
 
 
-def run_test(epochs, matrix_factor_dimensions, matrix, mask, regularizers=None):
+def run_test(epochs, matrix_factor_dimensions, matrix, mask, regularizers=None,
+             meets_stop_criteria=lambda epoch, loss: False,
+             report_frequency=100, report=lambda reconstructed_matrix, epoch, loss_dict: None):
     if regularizers:
         regularizers = [r for r in regularizers if r.weight_decay != 0]
     else:
@@ -72,7 +74,6 @@ def run_test(epochs, matrix_factor_dimensions, matrix, mask, regularizers=None):
     model.train()
     height, width = matrix.shape
 
-    nmae_losses = []
     for e in range(epochs):
 
         # Compute prediction error
@@ -89,24 +90,23 @@ def run_test(epochs, matrix_factor_dimensions, matrix, mask, regularizers=None):
 
         loss.backward()
 
+        # Gradient step
         optimizer.step()
         for o in regularizer_optimizers:
             o.step()
 
-        nmae_losses.append(lossm.nmae(reconstructed_matrix, matrix, mask).detach().cpu().numpy())
+        reported_loss = loss.detach().cpu().numpy()
 
-        if e % 100 == 0:
-            print(f'e: {e}, mse+reg: {loss}, nmae: {nmae_losses[-1]}')
-            # pprint.my_progress_bar(e, epochs, nmae_losses[-1])
-        # if nmae_losses[-1] < 1e-4:
-        if loss < 1e-4:
-            print(f'e: {e}, mse+reg: {loss}, nmae: {nmae_losses[-1]}')
+        if e % report_frequency == 0:
+            report(reconstructed_matrix.detach().cpu().numpy(), e, reported_loss)
+
+        if meets_stop_criteria(e, reported_loss):
             break
-            # pprint.my_progress_bar(e, epochs, loss)
-        # if e % 5000 == 0:
-        #     plot.gray_im(reconstructed_matrix.cpu().detach().numpy())
+        
+    result = reconstructed_matrix.detach().cpu().numpy()
+    report(result, e, reported_loss)
 
-    return reconstructed_matrix, nmae_losses
+    return result
 
 
 def run_paper_test(epochs, matrix_factor_dimensions, matrix, mask, regularizers=None, loss_log_suffix=''):

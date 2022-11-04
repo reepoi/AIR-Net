@@ -66,9 +66,7 @@ def load_aneu_timeframe(path, grid_density):
     grid_us = interp_griddata((xs, ys), us, (grid_xs, grid_ys), fill_value=0)
     grid_vs = interp_griddata((xs, ys), vs, (grid_xs, grid_ys), fill_value=0)
 
-    grid_data = list(map(lambda t: torch.tensor(t).to(device), [grid_xs, grid_ys, grid_us, grid_vs]))
-
-    return {'data_pd': data_pd, 'grid_data': grid_data}
+    return {'data_pd': data_pd, 'grid_data': [grid_xs, grid_ys, grid_us, grid_vs]}
 
 
 def interpolate_vector_field_points(data_pd, grid_points):
@@ -82,7 +80,7 @@ def interpolate_vector_field_points(data_pd, grid_points):
     )
     data_us = interp_griddata(spatial_coordinates, func_values[0], (data_xs, data_ys))
     data_vs = interp_griddata(spatial_coordinates, func_values[1], (data_xs, data_ys))
-    return list(map(lambda t: torch.tensor(t).to(device), [data_xs, data_ys, data_us, data_vs]))
+    return data_xs, data_ys, data_us, data_vs
 
 
 def num_large_singular_values(matrix, threshold=5e-1):
@@ -91,14 +89,15 @@ def num_large_singular_values(matrix, threshold=5e-1):
 
 
 def do(mask_rate, args):
-    grid_density = 400
+    grid_density = 200
     data = load_aneu_timeframe(args.aneu_path, grid_density)
     data_pd = data['data_pd']
+    (x_col, y_col), (u_col, v_col) = data_pd.index.names, data_pd.columns
     grid_xs, grid_ys, grid_us, grid_vs = data['grid_data']
     matrix = grid_us
 
-    print(f'grid_us Rank: {num_large_singular_values(grid_us.cpu())}')
-    print(f'grid_vs Rank: {num_large_singular_values(grid_us.cpu())}')
+    print(f'grid_us Rank: {num_large_singular_values(grid_us)}')
+    print(f'grid_vs Rank: {num_large_singular_values(grid_us)}')
 
     rows, cols = matrix.shape
     matrix_factor_dimensions = [main.Shape(rows=rows, cols=rows) for _ in range(args.num_factors - 1)]
@@ -117,43 +116,44 @@ def do(mask_rate, args):
     wandb.init(mode="disabled", project="AIR-Net Vector Fields", entity="taost", config=wandb.config)
 
     mask = main.get_bit_mask(matrix, rate=mask_rate)
+    mask_numpy = mask.cpu().numpy()
 
-    fig, ax = main.plot.quiver(grid_xs.cpu(), grid_ys.cpu(), grid_us.cpu(), grid_vs.cpu(), scale=400)
+    fig, ax = main.plot.quiver(grid_xs, grid_ys, grid_us, grid_vs, scale=400)
     fig.savefig(f'{args.save_dir}/AmirInterp.png')
-    fig, ax = main.plot.quiver(grid_xs.cpu(), grid_ys.cpu(), (grid_us * mask).cpu(), (grid_vs * mask).cpu(), scale=400)
+
+    fig, ax = main.plot.quiver(grid_xs, grid_ys, grid_us * mask_numpy, grid_vs * mask_numpy, scale=400)
     fig.savefig(f'{args.save_dir}/{mask_rate}DropAmir.png')
+
     wandb.log({'masked': wandb.Image(matplotlib_to_PIL_Image(fig))})
     print(matrix_factor_dimensions)
 
+    def meets_stop_criteria(epoch, loss):
+        return loss < 1e-5
+
+    report_frequency = 500
+    def report(reconstructed_matrix, epoch, loss, column):
+        data_xs = data_pd.index.get_level_values(x_col).to_numpy()
+        data_ys = data_pd.index.get_level_values(y_col).to_numpy()
+        data_func = interp_griddata((grid_xs.ravel(), grid_ys.ravel()), reconstructed_matrix.ravel(), (data_xs, data_ys))
+        nmae_against_original = main.lossm.my_nmae(data_func, data_pd[column].to_numpy())
+        print(f'Column: {column}, Epoch: {epoch}, MSE+REG: {loss:.5f}, NMAE (Original): {nmae_against_original:.5f}')
+    
     print(f'Mask Rate: {mask_rate}')
     print('Train grid_us')
-    RCgrid_us, us_losses = main.run_test(args.epochs, matrix_factor_dimensions, grid_us, mask, regularizers=[
-        main.dirichlet_energy_regularization(args.weight_decay_dirichlet_energy, rows, reg.DirichletEnergyRegularizationMode.ROW_SIMILARITY),
-        main.dirichlet_energy_regularization(args.weight_decay_dirichlet_energy, cols, reg.DirichletEnergyRegularizationMode.COL_SIMILARITY),
-        main.total_variation_regularization(args.weight_decay_total_variation, rows, reg.TotalVariationRegularizationMode.ROW_VARIATION),
-        main.total_variation_regularization(args.weight_decay_total_variation, cols, reg.TotalVariationRegularizationMode.COL_VARIATION),
-    ])
-    print(f'grid_us nmae: {us_losses[-1]:.5f}')
+    RCgrid_us = main.run_test(args.epochs, matrix_factor_dimensions, torch.tensor(grid_us).to(device), mask,
+                              meets_stop_criteria=meets_stop_criteria,
+                              report_frequency=report_frequency, report=lambda *args: report(*args, column=u_col))
+
     print('Train grid_vs')
-    RCgrid_vs, vs_losses = main.run_test(args.epochs, matrix_factor_dimensions, grid_vs, mask, regularizers=[
-        main.dirichlet_energy_regularization(args.weight_decay_dirichlet_energy, rows, reg.DirichletEnergyRegularizationMode.ROW_SIMILARITY),
-        main.dirichlet_energy_regularization(args.weight_decay_dirichlet_energy, cols, reg.DirichletEnergyRegularizationMode.COL_SIMILARITY),
-        main.total_variation_regularization(args.weight_decay_total_variation, rows, reg.TotalVariationRegularizationMode.ROW_VARIATION),
-        main.total_variation_regularization(args.weight_decay_total_variation, cols, reg.TotalVariationRegularizationMode.COL_VARIATION),
-    ])
-    print(f'grid_vs nmae: {vs_losses[-1]:.5f}')
+    RCgrid_vs = main.run_test(args.epochs, matrix_factor_dimensions, torch.tensor(grid_vs).to(device), mask,
+                              meets_stop_criteria=meets_stop_criteria,
+                              report_frequency=report_frequency, report=lambda *args: report(*args, column=v_col))
 
-    data_xs, data_ys, data_us, data_vs = interpolate_vector_field_points(data_pd, [grid_xs.cpu(), grid_ys.cpu(), RCgrid_us.detach().cpu(), RCgrid_vs.detach().cpu()])
+    data_xs, data_ys, data_us, data_vs = interpolate_vector_field_points(data_pd, [grid_xs, grid_ys, RCgrid_us, RCgrid_vs])
 
-    fig, ax = main.plot.quiver(data_xs.cpu(), data_ys.cpu(), data_us.cpu(), data_vs.cpu(), scale=400)
+    fig, ax = main.plot.quiver(data_xs, data_ys, data_us, data_vs, scale=400)
     fig.savefig(f'{args.save_dir}/{mask_rate}Recovered.png')
     wandb.log({'recovered': wandb.Image(matplotlib_to_PIL_Image(fig))})
-
-    u_col, v_col = data_pd.columns
-    nmae_original_us = main.lossm.my_nmae(data_us.ravel(), torch.tensor(data_pd[u_col].to_numpy()).to(device))
-    nmae_original_vs = main.lossm.my_nmae(data_vs.ravel(), torch.tensor(data_pd[v_col].to_numpy()).to(device))
-    print(f'nmae with original: {nmae_original_us:.5f}')
-    print(f'nmae with original: {nmae_original_vs:.5f}')
 
     wandb.finish()
 

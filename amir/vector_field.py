@@ -9,7 +9,7 @@ FILE_LOCATION = 'vel2Daneu_crop_recovered_0.9.csv'
 
 
 def nmae(yhat, y):
-    return np.abs(yhat - y).mean() / (np.max(y) - np.min(y))
+    return np.abs(yhat - y).mean() / np.mean(y)
 
 
 def aneu_timeframe_df(time):
@@ -34,7 +34,7 @@ def aneu_timeframe(time):
 
 
 def aneu_flattened(time):
-    FILE_LOCATION = 'vel2Daneu_crop_recovered_0.6.csv'
+    FILE_LOCATION = 'vel2Daneu_crop_recovered_0.9.csv'
     data = pd.read_csv(FILE_LOCATION, header=None).to_numpy()
 
     data_pd = aneu_timeframe_df(time)

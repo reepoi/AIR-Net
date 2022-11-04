@@ -1,3 +1,4 @@
+import numpy as np
 import torch.nn as nn
 import torch as t
 
@@ -31,7 +32,7 @@ def nmae(pre,rel,mask=None):
 
 
 def my_nmae(yhat, y):
-    return t.abs(yhat - y).mean() / (t.max(y) - t.min(y))
+    return np.mean(np.abs(yhat - y)) / np.mean(y)
 
 
 def mse_inv(pre,rel,mask=None):
