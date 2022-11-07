@@ -8,6 +8,7 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
 rng = np.random.RandomState(seed=20210909)
+# rng = np.random.RandomState(seed=1935912)
 
 Shape = namedtuple('Shape', ['rows', 'cols'])
 
@@ -59,6 +60,29 @@ def mean_sqrd_error(a, b, lib=torch):
     return lib.mean((a - b)**2)
 
 
+def l2_sqrd_error(a, b, lib=torch):
+    """
+    Calculates the square of the l2 vector norm of the difference
+    of two ndarrays of compatible shape.
+
+    Parameters
+    ----------
+    a: numeric
+        An ndarray.
+    
+    b: numeric
+        An ndarray.
+    
+    lib: module
+        The ndarray library to use, i.e. torch or numpy.
+    
+    Returns
+    -------
+        float
+    """
+    return lib.sum((a - b)**2)
+
+
 def norm_mean_abs_error(yhat, y, lib=torch):
     """
     Calculates the normalized mean absolute error between
@@ -79,7 +103,7 @@ def norm_mean_abs_error(yhat, y, lib=torch):
     -------
         float
     """
-    return lib.mean(lib.abs(yhat - y)) / lib.mean(y)
+    return lib.mean(lib.abs(yhat - y)) / lib.mean(lib.abs(y))
 
 
 def get_bit_mask(shape, rate):
@@ -151,7 +175,7 @@ def train(max_epochs, matrix_factor_dimensions, matrix, mask,
 
         # Compute prediction error
         reconstructed_matrix = model(matrix * mask)
-        loss = mean_sqrd_error(reconstructed_matrix * mask, matrix * mask)
+        loss = 0.5 * l2_sqrd_error(reconstructed_matrix * mask, matrix * mask)
 
         # Backpropagation
         optimizer.zero_grad()

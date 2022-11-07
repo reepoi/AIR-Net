@@ -1,12 +1,14 @@
 import argparse
-from collections import namedtuple
+from collections import namedtuple, OrderedDict
+import itertools
+import os
+import json
 import pdb
 
 import torch
 import numpy as np
 import pandas as pd
 import scipy.interpolate as interp
-import wandb
 
 import model
 import plots
@@ -23,14 +25,22 @@ def get_argparser():
     parser = argparse.ArgumentParser(description='Run deep matrix factorization with 2d aneurysm.')
     parser.add_argument('--max-epochs', type=int, default=20_000,
                         help='maximum number of epochs.')
+    parser.add_argument('--desired-loss', type=float, default=1e-4,
+                        help='desired loss for early training termination.')
     parser.add_argument('--num-factors', type=int, default=3,
                         help='number of matrix factors.')
+    parser.add_argument('--grid-density', type=int, default=200,
+                        help='the number of points on the side of the interpolation grid.')
     parser.add_argument('--mask-rate', type=float, default=None,
                         help='the expected precentage of matrix entries to be set to zero.')
+    parser.add_argument('--report-frequency', type=int, default=500,
+                        help='the number of epochs to pass before printing a report to the console.')
     parser.add_argument('--aneu-path', type=str,
                         help='path to the 2d aneurysm data.')
     parser.add_argument('--save-dir', type=str,
                         help='where to save the figures.')
+    parser.add_argument('--run-matrix-config', type=bool, default=False,
+                        help='run over various test configurations.')
     return parser
 
 
@@ -71,6 +81,41 @@ def ravel_VectorField(vec_field: VectorField):
         velx=vec_field.velx.ravel(),
         vely=vec_field.vely.ravel()
     )
+
+
+def list_VectorField(vec_field: VectorField):
+    """
+    Lists out all the data fields of a VectorField.
+
+    Parameters
+    ----------
+    vec_field: VectorField
+        A VectorField instance.
+
+    Returns
+    -------
+        A tuple of all the data fields of a VectorField.
+    """
+    return vec_field.coords.x, vec_field.coords.y, vec_field.velx, vec_field.vely
+
+
+def save_VectorField(vec_field: VectorField, directory):
+    """
+    Saves the data of a VectorField using ``np.savetxt``.
+
+    Parameters
+    ----------
+    vec_field: VectorField
+        A VectorField instance.
+    
+    directory: str
+        The directory where the files should be saved.
+    """
+    save = lambda name, arr: np.savetxt(f'{directory}_{name}.csv', arr, delimiter=',')
+    save('coords_x', vec_field.coords.x)
+    save('coords_y', vec_field.coords.y)
+    save('velx', vec_field.velx)
+    save('vely', vec_field.vely)
 
 
 def interp_griddata(coords: Coordinates, func_values, new_coords: Coordinates, **kwargs):
@@ -123,7 +168,7 @@ def interp_vector_field(vec_field: VectorField, coords: Coordinates, **interp_op
     return VectorField(coords=coords, velx=new_velx, vely=new_vely)
 
 
-def load_aneu_timeframe(path):
+def load_aneu_timeframe(path, training_fraction):
     """
     Load and preprocess one timeframe of the 2d aneurysm data set.
     Any duplicate spatial coordinates are removed.
@@ -176,15 +221,18 @@ def num_large_singular_values(matrix, threshold=5e-1):
     return np.sum(np.where(s > threshold, 1, 0))
 
 
-def run_test(mask_rate, grid_density, report_frequency, args):
-    vec_field = load_aneu_timeframe(args.aneu_path, grid_density)
+def run_test(**args):
+    vec_field = load_aneu_timeframe(args['aneu_path'], args['grid_density'])
  
     grid_coords = Coordinates(*np.meshgrid(
-        np.linspace(np.min(vec_field.coords.x), np.max(vec_field.coords.x), num=grid_density),
-        np.linspace(np.min(vec_field.coords.y), np.max(vec_field.coords.y), num=grid_density)
+        np.linspace(np.min(vec_field.coords.x), np.max(vec_field.coords.x), num=args['grid_density']),
+        np.linspace(np.min(vec_field.coords.y), np.max(vec_field.coords.y), num=args['grid_density'])
     ))
 
     grid_vec_field = interp_vector_field(vec_field, grid_coords, fill_value=0)
+    save_VectorField(grid_vec_field, f'{args["save_dir"]}/interpolated')
+    fig, _ = plots.quiver(*list_VectorField(grid_vec_field), scale=400,
+                          save_path=f'{args["save_dir"]}/interpolated.png')
 
     matrix = grid_vec_field.velx
 
@@ -192,67 +240,73 @@ def run_test(mask_rate, grid_density, report_frequency, args):
     print(f'vely Rank: {num_large_singular_values(grid_vec_field.vely)}')
 
     rows, cols = matrix.shape
-    matrix_factor_dimensions = [model.Shape(rows=rows, cols=rows) for _ in range(args.num_factors - 1)]
+    matrix_factor_dimensions = [model.Shape(rows=rows, cols=rows) for _ in range(args['num_factors'] - 1)]
     matrix_factor_dimensions.append(model.Shape(rows=rows, cols=cols))
 
-    wandb.config = {
-        'dataset': 'Aneursym Interpolated',
-        'mask_rate': mask_rate,
-        'epochs': args.max_epochs,
-        'matrix_factor_dimensions': [(s.rows, s.cols) for s in matrix_factor_dimensions]
-    }
     print(matrix_factor_dimensions)
 
-    wandb.init(mode="disabled", project="AIR-Net Vector Fields", entity="taost", config=wandb.config)
-
-    mask = model.get_bit_mask(matrix.shape, mask_rate)
+    mask = model.get_bit_mask(matrix.shape, args['mask_rate'])
     mask_numpy = mask.cpu().numpy()
 
-    fig, _ = plots.quiver(grid_vec_field.coords.x, grid_vec_field.coords.y,
-                           grid_vec_field.velx, grid_vec_field.vely, scale=400,
-                           save_path=f'{args.save_dir}/AneuInterp.png')
-    fig, _ = plots.quiver(grid_vec_field.coords.x, grid_vec_field.coords.y,
-                           grid_vec_field.velx * mask_numpy, grid_vec_field.vely * mask_numpy, scale=400,
-                           save_path=f'{args.save_dir}/{mask_rate}DropAneu.png')
-    wandb.log({'masked': wandb.Image(plots.matplotlib_to_PIL_Image(fig))})
+    grid_vec_field_masked = VectorField(coords=grid_vec_field.coords,
+                                        velx=grid_vec_field.velx * mask_numpy,
+                                        vely=grid_vec_field.vely * mask_numpy)
+    save_VectorField(grid_vec_field_masked, f'{args["save_dir"]}/interpolated_masked')
+    fig, _ = plots.quiver(*list_VectorField(grid_vec_field_masked), scale=400,
+                           save_path=f'{args["save_dir"]}/masked_interpolated.png')
 
     def meets_stop_criteria(epoch, loss):
-        return loss < 1e-5
+        return loss < args['desired_loss']
 
     def report(reconstructed_matrix, epoch, loss, last_report: bool, column):
         vel = interp_griddata(ravel_Coordinates(grid_vec_field.coords), reconstructed_matrix.ravel(), vec_field.coords)
         nmae_against_original = model.norm_mean_abs_error(vel, getattr(vec_field, column), lib=np)
-        print(f'Column: {column}, Epoch: {epoch}, MSE+REG: {loss:.5f}, NMAE (Original): {nmae_against_original:.5f}')
+        print(f'Column: {column}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE (Original): {nmae_against_original:.5e}')
         if last_report:
             print(f'\n*** END {column} ***\n')
     
-    print(f'Mask Rate: {mask_rate}')
+    print(f'Mask Rate: {args["mask_rate"]}')
     reconstructed_grid_vec_field = VectorField(
         coords=grid_vec_field.coords,
-        velx=model.train(args.max_epochs, matrix_factor_dimensions, torch.tensor(grid_vec_field.velx).to(device), mask,
+        velx=model.train(args['max_epochs'], matrix_factor_dimensions, torch.tensor(grid_vec_field.velx).to(device), mask,
                          meets_stop_criteria=meets_stop_criteria,
-                         report_frequency=report_frequency, report=lambda *args: report(*args, column='velx')),
-        vely=model.train(args.max_epochs, matrix_factor_dimensions, torch.tensor(grid_vec_field.vely).to(device), mask,
+                         report_frequency=args['report_frequency'], report=lambda *args: report(*args, column='velx')),
+        vely=model.train(args['max_epochs'], matrix_factor_dimensions, torch.tensor(grid_vec_field.vely).to(device), mask,
                          meets_stop_criteria=meets_stop_criteria,
-                         report_frequency=report_frequency, report=lambda *args: report(*args, column='vely'))
+                         report_frequency=args['report_frequency'], report=lambda *args: report(*args, column='vely'))
     )
+    save_VectorField(reconstructed_grid_vec_field, f'{args["save_dir"]}/reconstructed_interpolated')
+    fig, _ = plots.quiver(*list_VectorField(reconstructed_grid_vec_field), scale=400,
+                           save_path=f'{args["save_dir"]}/reconstructed_interpolated.png')
 
     reconstructed_vec_field = interp_vector_field(ravel_VectorField(reconstructed_grid_vec_field), vec_field.coords)
-
+    save_VectorField(reconstructed_vec_field, f'{args["save_dir"]}/reconstructed')
     fig, _ = plots.quiver(reconstructed_vec_field.coords.x, reconstructed_vec_field.coords.y,
                            reconstructed_vec_field.velx, reconstructed_vec_field.vely, scale=400,
-                           save_path=f'{args.save_dir}/{mask_rate}RecoveredAneu.png')
-    wandb.log({'recovered': wandb.Image(plots.matplotlib_to_PIL_Image(fig))})
+                           save_path=f'{args["save_dir"]}/reconstructed.png')
 
-    wandb.finish()
+    plots.plt.close('all')
 
 
 if __name__ == '__main__':
-    mask_rates = [0.3, 0.5, 0.7, 0.9]
-
-    args = get_argparser().parse_args()
-    if (mr := args.mask_rate):
-        mask_rates = [mr]
-
-    for mr in mask_rates:
-        run_test(mr, 200, 500, args)
+    args = get_argparser().parse_args().__dict__
+    if args['run_matrix_config']:
+        config_values = OrderedDict(
+            num_factors=[2, 3, 4, 5],
+            mask_rate=[0.3, 0.5, 0.7, 0.9],
+            grid_density = [100, 200, 300, 400, 500]
+        )
+        config_values_keys = config_values.keys()
+        save_dir = args['save_dir']
+        for params in itertools.product(*config_values.values()):
+            folder_name = f'{save_dir}/'
+            for k, p in zip(config_values_keys, params):
+                args[k] = p
+                folder_name += f'{k}_{p}__'
+            os.mkdir(folder_name)
+            args['save_dir'] = folder_name
+            with open(f'{folder_name}/config.json', 'w') as f:
+                json.dump(args, f, indent=2)
+            run_test(**args)
+    else:
+        run_test(**args)
