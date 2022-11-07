@@ -197,3 +197,39 @@ def train(max_epochs, matrix_factor_dimensions, matrix, mask,
     report(result, e, detached_loss, True)
 
     return result
+
+
+def iterated_soft_thresholding(matrix, mask, err=1e-6, normfac=1, insweep=200, tol=1e-4, decfac=0.9):
+    reconstructed_matrix = torch.zeros(matrix.shape)
+    alpha = 1.1 * normfac
+    # lam = lambda
+    masked = matrix * mask # y
+    lam_init = decfac * torch.max(torch.abs(masked)) # interpretation of matlab code
+    lam = torch.clone(lam_init)
+    loss_func = lambda RCm: torch.linalg.matrix_norm(masked - RCm, ord=2) + lam * torch.linalg.vector_norm(RCm.ravel(), ord=1)
+
+    loss = loss_func(reconstructed_matrix)
+
+    while lam > lam_init * tol:
+        for _ in range(insweep):
+            loss_prev = loss
+            reconstructed_matrix += mask * (masked - reconstructed_matrix) / alpha
+
+            U, S, Vh = torch.linalg.svd(reconstructed_matrix)
+            S = soft_threshold(S, lam / (2 * alpha))
+            reconstructed_matrix = U * S * Vh
+
+            loss = loss_func(reconstructed_matrix)
+
+            if torch.abs(loss - loss_prev) / torch.abs(loss + loss_prev) < tol:
+                break
+            
+        if torch.linalg.matrix_norm(masked - reconstructed_matrix, ord=2) < err:
+            return reconstructed_matrix
+
+        lam *= decfac
+        print(lam, lam_init * tol)
+
+
+def soft_threshold(matrix, threshold):
+    return torch.sign(matrix) * torch.maximum(torch.tensor(0).to(device), torch.abs(matrix) - threshold)

@@ -268,12 +268,14 @@ def run_test(**args):
     print(f'Mask Rate: {args["mask_rate"]}')
     reconstructed_grid_vec_field = VectorField(
         coords=grid_vec_field.coords,
-        velx=model.train(args['max_epochs'], matrix_factor_dimensions, torch.tensor(grid_vec_field.velx).to(device), mask,
-                         meets_stop_criteria=meets_stop_criteria,
-                         report_frequency=args['report_frequency'], report=lambda *args: report(*args, column='velx')),
-        vely=model.train(args['max_epochs'], matrix_factor_dimensions, torch.tensor(grid_vec_field.vely).to(device), mask,
-                         meets_stop_criteria=meets_stop_criteria,
-                         report_frequency=args['report_frequency'], report=lambda *args: report(*args, column='vely'))
+        velx=model.iterated_soft_thresholding(torch.tensor(grid_vec_field.velx).to(device), mask),
+        vely=model.iterated_soft_thresholding(torch.tensor(grid_vec_field.vely).to(device), mask)
+        # velx=model.train(args['max_epochs'], matrix_factor_dimensions, torch.tensor(grid_vec_field.velx).to(device), mask,
+        #                  meets_stop_criteria=meets_stop_criteria,
+        #                  report_frequency=args['report_frequency'], report=lambda *args: report(*args, column='velx')),
+        # vely=model.train(args['max_epochs'], matrix_factor_dimensions, torch.tensor(grid_vec_field.vely).to(device), mask,
+        #                  meets_stop_criteria=meets_stop_criteria,
+        #                  report_frequency=args['report_frequency'], report=lambda *args: report(*args, column='vely'))
     )
     save_VectorField(reconstructed_grid_vec_field, f'{args["save_dir"]}/reconstructed_interpolated')
     fig, _ = plots.quiver(*list_VectorField(reconstructed_grid_vec_field), scale=400,
