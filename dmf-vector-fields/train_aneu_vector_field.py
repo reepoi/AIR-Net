@@ -4,6 +4,7 @@ import itertools
 import os
 import json
 import pdb
+from pathlib import Path
 
 import torch
 import numpy as np
@@ -12,6 +13,7 @@ import scipy.interpolate as interp
 
 import model
 import plots
+import data
 
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -35,8 +37,8 @@ def get_argparser():
                         help='the expected precentage of matrix entries to be set to zero.')
     parser.add_argument('--report-frequency', type=int, default=500,
                         help='the number of epochs to pass before printing a report to the console.')
-    parser.add_argument('--aneu-path', type=str,
-                        help='path to the 2d aneurysm data.')
+    parser.add_argument('--data-dir', type=Path,
+                        help='path to the matrix completion test data.')
     parser.add_argument('--save-dir', type=str,
                         help='where to save the figures.')
     parser.add_argument('--run-matrix-config', type=bool, default=False,
@@ -168,7 +170,23 @@ def interp_vector_field(vec_field: VectorField, coords: Coordinates, **interp_op
     return VectorField(coords=coords, velx=new_velx, vely=new_vely)
 
 
-def load_aneu_timeframe(path, training_fraction):
+def load_aneu_v_by_t():
+    # duplicate point at row 39, 41
+    # x   y   velx      vely
+    # 1.9 0.0 -0.000152 -8.057502e-07
+    data = pd.read_csv('../amir/vel_2Daneu_crop.csv')
+    data = data.drop(41) # remove the duplicate
+    tf_vec_field = load_aneu_timeframe('../amir/cropped_2D_aneurysm/vel_2Daneu_crop.0.csv')
+    tf_vec_field = ravel_VectorField(tf_vec_field)
+    velx, vely = data[0::2], data[1::2]
+    return VectorField(
+        coords=tf_vec_field.coords,
+        velx=velx,
+        vely=vely
+    )
+
+
+def load_aneu_timeframe(path):
     """
     Load and preprocess one timeframe of the 2d aneurysm data set.
     Any duplicate spatial coordinates are removed.
@@ -222,23 +240,34 @@ def num_large_singular_values(matrix, threshold=5e-1):
 
 
 def run_test(**args):
-    vec_field = load_aneu_timeframe(args['aneu_path'], args['grid_density'])
+    run_aneursym(**args)
+
+
+def run_aneursym(**args):
+    time = 0
+    aneurysm_timeframe = data.AneurysmTimeframe(time=time, filepath=args['data_dir'] / 'aneurysm' / f'vel_2Daneu_crop.{time}.csv')
+    vel_by_time = data.AneurysmVelocityByTime(filepath_vel_by_time=args['data_dir'] / 'aneurysm' / f'vel_by_time.csv', aneurysm_timeframe=aneurysm_timeframe)
+
+
+    # vec_field = load_aneu_timeframe(args['aneu_path'], args['grid_density'])
  
-    grid_coords = Coordinates(*np.meshgrid(
-        np.linspace(np.min(vec_field.coords.x), np.max(vec_field.coords.x), num=args['grid_density']),
-        np.linspace(np.min(vec_field.coords.y), np.max(vec_field.coords.y), num=args['grid_density'])
-    ))
+    # grid_coords = Coordinates(*np.meshgrid(
+    #     np.linspace(np.min(vec_field.coords.x), np.max(vec_field.coords.x), num=args['grid_density']),
+    #     np.linspace(np.min(vec_field.coords.y), np.max(vec_field.coords.y), num=args['grid_density'])
+    # ))
 
-    grid_vec_field = interp_vector_field(vec_field, grid_coords, fill_value=0)
-    save_VectorField(grid_vec_field, f'{args["save_dir"]}/interpolated')
-    fig, _ = plots.quiver(*list_VectorField(grid_vec_field), scale=400,
-                          save_path=f'{args["save_dir"]}/interpolated.png')
+    # grid_vec_field = interp_vector_field(vec_field, grid_coords, fill_value=0)
+    # save_VectorField(grid_vec_field, f'{args["save_dir"]}/interpolated')
+    # fig, _ = plots.quiver(*list_VectorField(grid_vec_field), scale=400,
+    #                       save_path=f'{args["save_dir"]}/interpolated.png')
 
-    matrix = grid_vec_field.velx
+    # matrix = grid_vec_field.velx
 
-    print(f'velx Rank: {num_large_singular_values(grid_vec_field.velx)}')
-    print(f'vely Rank: {num_large_singular_values(grid_vec_field.vely)}')
+    # print(f'velx Rank: {num_large_singular_values(grid_vec_field.velx)}')
+    # print(f'vely Rank: {num_large_singular_values(grid_vec_field.vely)}')
 
+
+    matrix = vel_by_time.as_completable1()
     rows, cols = matrix.shape
     matrix_factor_dimensions = [model.Shape(rows=rows, cols=rows) for _ in range(args['num_factors'] - 1)]
     matrix_factor_dimensions.append(model.Shape(rows=rows, cols=cols))
@@ -248,28 +277,37 @@ def run_test(**args):
     mask = model.get_bit_mask(matrix.shape, args['mask_rate'])
     mask_numpy = mask.cpu().numpy()
 
-    grid_vec_field_masked = VectorField(coords=grid_vec_field.coords,
-                                        velx=grid_vec_field.velx * mask_numpy,
-                                        vely=grid_vec_field.vely * mask_numpy)
-    save_VectorField(grid_vec_field_masked, f'{args["save_dir"]}/interpolated_masked')
-    fig, _ = plots.quiver(*list_VectorField(grid_vec_field_masked), scale=400,
-                           save_path=f'{args["save_dir"]}/masked_interpolated.png')
+    # grid_vec_field_masked = VectorField(coords=grid_vec_field.coords,
+    #                                     velx=grid_vec_field.velx * mask_numpy,
+    #                                     vely=grid_vec_field.vely * mask_numpy)
+    # save_VectorField(grid_vec_field_masked, f'{args["save_dir"]}/interpolated_masked')
+    # fig, _ = plots.quiver(*list_VectorField(grid_vec_field_masked), scale=400,
+    #                        save_path=f'{args["save_dir"]}/masked_interpolated.png')
 
     def meets_stop_criteria(epoch, loss):
         return loss < args['desired_loss']
 
     def report(reconstructed_matrix, epoch, loss, last_report: bool, column):
-        vel = interp_griddata(ravel_Coordinates(grid_vec_field.coords), reconstructed_matrix.ravel(), vec_field.coords)
-        nmae_against_original = model.norm_mean_abs_error(vel, getattr(vec_field, column), lib=np)
-        print(f'Column: {column}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE (Original): {nmae_against_original:.5e}')
+        # vel = interp_griddata(ravel_Coordinates(grid_vec_field.coords), reconstructed_matrix.ravel(), vec_field.coords)
+        # nmae_against_original = model.norm_mean_abs_error(vel, getattr(vec_field, column), lib=np)
+        # print(f'Column: {column}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE (Original): {nmae_against_original:.5e}')
         if last_report:
             print(f'\n*** END {column} ***\n')
     
     print(f'Mask Rate: {args["mask_rate"]}')
+    rec_matrix=model.iterated_soft_thresholding(matrix, mask_numpy,
+                                                report_frequency=args['report_frequency'],
+                                                report=lambda *args: vel_by_time.accuracy_report1(*args, column='velx', ground_truth_matrix=matrix))
     reconstructed_grid_vec_field = VectorField(
         coords=grid_vec_field.coords,
-        velx=model.iterated_soft_thresholding(torch.tensor(grid_vec_field.velx).to(device), mask),
-        vely=model.iterated_soft_thresholding(torch.tensor(grid_vec_field.vely).to(device), mask)
+        velx=rec_matrix[0::2, 0],
+        vely=rec_matrix[1::2, 0]
+        # velx=model.iterated_soft_thresholding(grid_vec_field.velx, mask_numpy,
+        #                                       report_frequency=args['report_frequency'],
+        #                                       report=lambda *args: report(*args, column='velx')),
+        # vely=model.iterated_soft_thresholding(grid_vec_field.vely, mask_numpy,
+        #                                       report_frequency=args['report_frequency'],
+        #                                       report=lambda *args: report(*args, column='vely'))
         # velx=model.train(args['max_epochs'], matrix_factor_dimensions, torch.tensor(grid_vec_field.velx).to(device), mask,
         #                  meets_stop_criteria=meets_stop_criteria,
         #                  report_frequency=args['report_frequency'], report=lambda *args: report(*args, column='velx')),

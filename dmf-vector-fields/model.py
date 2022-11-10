@@ -125,7 +125,7 @@ def get_bit_mask(shape, rate):
     return torch.tensor(rng.random(shape) > rate).int().to(device)
 
 
-def train(max_epochs, matrix_factor_dimensions, matrix, mask,
+def train(max_epochs, matrix_factor_dimensions, masked_matrix,
              meets_stop_criteria=lambda epoch, loss: False,
              report_frequency=100,
              report=lambda reconstructed_matrix, epoch, loss, last_report: None):
@@ -140,12 +140,8 @@ def train(max_epochs, matrix_factor_dimensions, matrix, mask,
     matrix_factor_dimensions: list of Shape
         The dimensions of the matrix factors in the DeepMatrixFactorization model.
     
-    matrix: numeric
-        The ground-truth matrix to be reconstructed.
-    
-    mask: numeric
-        The bit-mask to multiply with the ground-truth matrix.
-        The DeepMatrixFactorization model will only see the product during training.
+    masked_matrix: numeric
+        The masked ground-truth matrix to be reconstructed.
 
     meets_stop_criteria: function
         A function that returns a boolean whether to terminate the training loop
@@ -169,13 +165,13 @@ def train(max_epochs, matrix_factor_dimensions, matrix, mask,
     optimizer = torch.optim.Adam(model.parameters())
 
     model.train()
-    height, width = matrix.shape
+    height, width = masked_matrix.shape
 
     for e in range(max_epochs):
 
         # Compute prediction error
-        reconstructed_matrix = model(matrix * mask)
-        loss = 0.5 * l2_sqrd_error(reconstructed_matrix * mask, matrix * mask)
+        reconstructed_matrix = model(masked_matrix)
+        loss = 0.5 * l2_sqrd_error(reconstructed_matrix * mask, masked_matrix)
 
         # Backpropagation
         optimizer.zero_grad()
@@ -199,37 +195,50 @@ def train(max_epochs, matrix_factor_dimensions, matrix, mask,
     return result
 
 
-def iterated_soft_thresholding(matrix, mask, err=1e-6, normfac=1, insweep=200, tol=1e-4, decfac=0.9):
-    reconstructed_matrix = torch.zeros(matrix.shape)
+def iterated_soft_thresholding(matrix, mask, err=1e-6, normfac=1, insweep=200, tol=1e-4, decfac=0.9,
+                               report_frequency=100,
+                               report=lambda reconstructed_matrix, epoch, loss, last_report: None):
+    reconstructed_matrix = np.zeros(matrix.shape)
     alpha = 1.1 * normfac
     # lam = lambda
     masked = matrix * mask # y
-    lam_init = decfac * torch.max(torch.abs(masked)) # interpretation of matlab code
-    lam = torch.clone(lam_init)
-    loss_func = lambda RCm: torch.linalg.matrix_norm(masked - RCm, ord=2) + lam * torch.linalg.vector_norm(RCm.ravel(), ord=1)
+    lam_init = decfac * np.max(np.abs(masked)) # interpretation of matlab code
+    lam = np.copy(lam_init)
+
+    loss_func = lambda RCm: np.linalg.norm(masked - mask * RCm, ord=2) + lam * np.linalg.norm(RCm.ravel(), ord=1)
 
     loss = loss_func(reconstructed_matrix)
 
+    e = 1
     while lam > lam_init * tol:
         for _ in range(insweep):
             loss_prev = loss
-            reconstructed_matrix += mask * (masked - reconstructed_matrix) / alpha
+            reconstructed_matrix += (masked - mask * reconstructed_matrix) / alpha
 
-            U, S, Vh = torch.linalg.svd(reconstructed_matrix)
+            U, S, Vh = np.linalg.svd(reconstructed_matrix, full_matrices=False)
             S = soft_threshold(S, lam / (2 * alpha))
-            reconstructed_matrix = U * S * Vh
+            reconstructed_matrix = np.matmul(U * S, Vh)
 
             loss = loss_func(reconstructed_matrix)
 
-            if torch.abs(loss - loss_prev) / torch.abs(loss + loss_prev) < tol:
+            if e % report_frequency == 0:
+                report(reconstructed_matrix, e, loss, False)
+
+            if np.abs(loss - loss_prev) / np.abs(loss + loss_prev) < tol:
                 break
+
+            e += 1
             
-        if torch.linalg.matrix_norm(masked - reconstructed_matrix, ord=2) < err:
-            return reconstructed_matrix
+        if np.linalg.norm(masked - mask * reconstructed_matrix, ord=2) < err:
+            break
 
         lam *= decfac
         print(lam, lam_init * tol)
 
+    report(reconstructed_matrix, e, loss, True)
+
+    return reconstructed_matrix
+
 
 def soft_threshold(matrix, threshold):
-    return torch.sign(matrix) * torch.maximum(torch.tensor(0).to(device), torch.abs(matrix) - threshold)
+    return np.sign(matrix) * np.maximum(0, np.abs(matrix) - threshold)
