@@ -12,7 +12,6 @@ import pandas as pd
 import scipy.interpolate as interp
 
 import model
-import plots
 import data
 
 
@@ -120,103 +119,6 @@ def save_VectorField(vec_field: VectorField, directory):
     save('vely', vec_field.vely)
 
 
-def interp_griddata(coords: Coordinates, func_values, new_coords: Coordinates, **kwargs):
-    """
-    Runs SciPy Interpolate's griddata. This method is to
-    make sure the same interpolation method is used throughout
-    the script.
-
-    Parameters
-    ----------
-    coords: Coordinates
-        The Coordinates where the values of the interpolated
-        function are defined.
-    
-    func_values: numeric
-        The values for each of the points of Coordinates.
-    
-    new_coords: Coordinates
-        The Coordinates where the an interpolated function value
-        should be produced.
-    
-    Returns
-    -------
-        numeric
-        The interpolated function values.
-    """
-    return interp.griddata(coords, func_values, new_coords, method='linear', **kwargs)
-
-
-def interp_vector_field(vec_field: VectorField, coords: Coordinates, **interp_opts):
-    """
-    Uses interpolation to change the grid on which a vector field
-    is defined.
-
-    Parameters
-    ----------
-    vec_field: VectorField
-        The current vector field that will be used to create an
-        interpolation funciton.
-    
-    coords: Coordinates
-        The new grid for the vector field to be defined on.
-    
-    Returns
-    -------
-        A VectorField on defined on new Coordinates.
-    """
-    new_velx = interp_griddata(vec_field.coords, vec_field.velx, coords, **interp_opts)
-    new_vely = interp_griddata(vec_field.coords, vec_field.vely, coords, **interp_opts)
-    return VectorField(coords=coords, velx=new_velx, vely=new_vely)
-
-
-def load_aneu_v_by_t():
-    # duplicate point at row 39, 41
-    # x   y   velx      vely
-    # 1.9 0.0 -0.000152 -8.057502e-07
-    data = pd.read_csv('../amir/vel_2Daneu_crop.csv')
-    data = data.drop(41) # remove the duplicate
-    tf_vec_field = load_aneu_timeframe('../amir/cropped_2D_aneurysm/vel_2Daneu_crop.0.csv')
-    tf_vec_field = ravel_VectorField(tf_vec_field)
-    velx, vely = data[0::2], data[1::2]
-    return VectorField(
-        coords=tf_vec_field.coords,
-        velx=velx,
-        vely=vely
-    )
-
-
-def load_aneu_timeframe(path):
-    """
-    Load and preprocess one timeframe of the 2d aneurysm data set.
-    Any duplicate spatial coordinates are removed.
-
-    Parameters
-    ----------
-    path : str
-        The path where to find the 2d aneurysm data set timeframe.
-    
-    Returns
-    -------
-        VectorField
-    """
-    data = pd.read_csv(path)
-    col_idxs, col_names = [0, 1, 3, 4], ['velx', 'vely', 'x', 'y']
-    data = data.rename(columns={data.columns[i]: n for i, n in zip(col_idxs, col_names)})
-    data = data[col_names] # drop extra columns
-    data = data.set_index(['x', 'y']) # set index to (x, y)
-    data = data.groupby(level=data.index.names).first() # remove duplicate (x, y)
-    vec_field = VectorField(
-        coords=Coordinates(
-            x=data.index.get_level_values('x').to_numpy(),
-            y=data.index.get_level_values('y').to_numpy()
-        ),
-        velx=data['velx'].to_numpy(),
-        vely=data['vely'].to_numpy()
-    )
-    return vec_field
-
-
 def num_large_singular_values(matrix, threshold=5e-1):
     """
     Returns the number of singular values greater than some
@@ -244,21 +146,12 @@ def run_test(**args):
 
 
 def run_aneursym(**args):
+    save_dir = lambda p: f'{args["save_dir"]}/{p}'
     time = 0
     at = data.AneurysmTimeframe(time=time, filepath=args['data_dir'] / 'aneurysm' / f'vel_2Daneu_crop.{time}.csv')
-    at_grid = at.as_completable(grid_density=100)
-    # vel_by_time = data.AneurysmVelocityByTime(filepath_vel_by_time=args['data_dir'] / 'aneurysm' / f'vel_by_time.csv', aneurysm_timeframe=aneurysm_timeframe)
+    at_grid = at.as_completable(grid_density=args['grid_density'])
 
-
-    # grid_vec_field = interp_vector_field(vec_field, grid_coords, fill_value=0)
-    # save_VectorField(grid_vec_field, f'{args["save_dir"]}/interpolated')
-    # fig, _ = plots.quiver(*list_VectorField(grid_vec_field), scale=400,
-    #                       save_path=f'{args["save_dir"]}/interpolated.png')
-
-
-    # print(f'velx Rank: {num_large_singular_values(grid_vec_field.velx)}')
-    # print(f'vely Rank: {num_large_singular_values(grid_vec_field.vely)}')
-
+    at_grid.vec_field.save(save_dir('interpolated'))
 
     rows, cols = at_grid.vec_field.velx.shape
     matrix_factor_dimensions = [model.Shape(rows=rows, cols=rows) for _ in range(args['num_factors'] - 1)]
@@ -271,47 +164,35 @@ def run_aneursym(**args):
 
     at_grid_masked = at_grid.transform(lambda vel: vel * mask_numpy)
 
-    # save_VectorField(grid_vec_field_masked, f'{args["save_dir"]}/interpolated_masked')
-    # fig, _ = plots.quiver(*list_VectorField(grid_vec_field_masked), scale=400,
-    #                        save_path=f'{args["save_dir"]}/masked_interpolated.png')
+    at_grid_masked.vec_field.save(save_dir('masked_interpolated'))
 
     def meets_stop_criteria(epoch, loss):
         return loss < args['desired_loss']
 
-    def report(reconstructed_matrix, epoch, loss, last_report: bool, column):
-        # vel = interp_griddata(ravel_Coordinates(grid_vec_field.coords), reconstructed_matrix.ravel(), vec_field.coords)
-        # nmae_against_original = model.norm_mean_abs_error(vel, getattr(vec_field, column), lib=np)
-        # print(f'Column: {column}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE (Original): {nmae_against_original:.5e}')
-        print(f'Epoch: {epoch}, Loss: {loss:.5e}')
+    def report(reconstructed_matrix, epoch, loss, last_report: bool, component):
+        vel = data.interp_griddata(at_grid.vec_field.coords, reconstructed_matrix, at.vec_field.coords)
+        nmae_against_original = model.norm_mean_abs_error(vel, getattr(at.vec_field, component), lib=np)
+        print(f'Component: {component}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE (Original): {nmae_against_original:.5e}')
         if last_report:
-            print(f'\n*** END {column} ***\n')
+            print(f'\n*** END {component} ***\n')
     
     print(f'Mask Rate: {args["mask_rate"]}')
-    trainer = lambda vel: model.train(
-        max_epochs=args['max_epochs'],
-        matrix_factor_dimensions=matrix_factor_dimensions,
-        masked_matrix=vel,
-        mask=mask,
-        meets_stop_criteria=meets_stop_criteria,
-        report_frequency=args['report_frequency'],
-        report=lambda *args: report(*args, column='test')
-    )
+    training_names = (n for n in ('velx', 'vely'))
+    def trainer(vel):
+        name = next(training_names)
+        return model.train(
+            max_epochs=args['max_epochs'],
+            matrix_factor_dimensions=matrix_factor_dimensions,
+            masked_matrix=vel,
+            mask=mask,
+            meets_stop_criteria=meets_stop_criteria,
+            report_frequency=args['report_frequency'],
+            report=lambda *args: report(*args, component=name)
+        )
     at_grid_masked_rec = at_grid_masked.numpy_to_torch().transform(trainer).torch_to_numpy()
-    # rec_matrix=model.iterated_soft_thresholding(matrix, mask_numpy,
-    #                                             report_frequency=args['report_frequency'],
-    #                                             report=lambda *args: vel_by_time.accuracy_report1(*args, column='velx', ground_truth_matrix=matrix))
 
-    # save_VectorField(reconstructed_grid_vec_field, f'{args["save_dir"]}/reconstructed_interpolated')
-    # fig, _ = plots.quiver(*list_VectorField(reconstructed_grid_vec_field), scale=400,
-    #                        save_path=f'{args["save_dir"]}/reconstructed_interpolated.png')
-
-    # reconstructed_vec_field = interp_vector_field(ravel_VectorField(reconstructed_grid_vec_field), vec_field.coords)
-    # save_VectorField(reconstructed_vec_field, f'{args["save_dir"]}/reconstructed')
-    # fig, _ = plots.quiver(reconstructed_vec_field.coords.x, reconstructed_vec_field.coords.y,
-    #                        reconstructed_vec_field.velx, reconstructed_vec_field.vely, scale=400,
-    #                        save_path=f'{args["save_dir"]}/reconstructed.png')
-
-    plots.plt.close('all')
+    at_grid_masked_rec.vec_field.save(save_dir('reconstructed_interpolated'))
+    at_grid_masked_rec.vec_field.interp(coords=at.vec_field.coords).save(save_dir('reconstructed'))
 
 
 if __name__ == '__main__':

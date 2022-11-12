@@ -4,6 +4,8 @@ import pandas as pd
 import torch
 import scipy.interpolate as interp
 
+import plots
+
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -129,14 +131,18 @@ class VectorField:
         return self.coords.x, self.coords.y, self.velx, self.vely
     
 
-    def interp(self, grid_density, **interp_opts):
+    def interp(self, grid_density=None, coords=None, **interp_opts):
         """
         Uses interpolation to change the grid on which a vector field
         is defined.
 
         Parameters
         ----------
-        coords: Coordinates
+        grid_density: int, default None
+            The number of points along one edge of the grid.
+            Must not be None if ``coords`` is None.
+
+        coords: Coordinates, default None
             The new grid for the vector field to be defined on.
 
         **interp_opts: dict
@@ -146,7 +152,8 @@ class VectorField:
         -------
             A VectorField on defined on new Coordinates.
         """
-        coords = self.coords.bounding_grid(grid_density)
+        if coords is None:
+            coords = self.coords.bounding_grid(grid_density)
         new_velx = interp_griddata(self.coords, self.velx, coords, **interp_opts)
         new_vely = interp_griddata(self.coords, self.vely, coords, **interp_opts)
         return VectorField(coords=coords, velx=new_velx, vely=new_vely)
@@ -161,7 +168,7 @@ class VectorField:
         -------
             ``VectorField``
         """
-        return self.interp(grid_density, fill_value=0)
+        return self.interp(grid_density=grid_density, fill_value=0)
     
 
     def transform(self, transform_func, apply_to_coords=False):
@@ -185,6 +192,14 @@ class VectorField:
             velx=transform_func(self.velx),
             vely=transform_func(self.vely)
         )
+    
+
+    def save(self, path, plot=True):
+        # save = lambda name, arr: np.savetxt(f'{path}_{name}.csv', arr, delimiter=',')
+        if plot:
+            fig, _ = plots.quiver(*self.to_tuple(), scale=400, save_path=f'{path}.png')
+            plots.plt.close(fig)
+        
 
 
 @dataclass
@@ -488,7 +503,8 @@ def interp_griddata(coords: Coordinates, func_values, new_coords: Coordinates, *
         numeric
         The interpolated function values.
     """
+    coords = coords.ravel()
+    func_values = func_values.ravel()
     xy = coords.x, coords.y
     new_xy = new_coords.x, new_coords.y
     return interp.griddata(xy, func_values, new_xy, method='linear', **kwargs)
-
