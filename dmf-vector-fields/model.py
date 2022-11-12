@@ -125,7 +125,7 @@ def get_bit_mask(shape, rate):
     return torch.tensor(rng.random(shape) > rate).int().to(device)
 
 
-def train(max_epochs, matrix_factor_dimensions, masked_matrix,
+def train(max_epochs, matrix_factor_dimensions, masked_matrix, mask,
              meets_stop_criteria=lambda epoch, loss: False,
              report_frequency=100,
              report=lambda reconstructed_matrix, epoch, loss, last_report: None):
@@ -142,6 +142,9 @@ def train(max_epochs, matrix_factor_dimensions, masked_matrix,
     
     masked_matrix: numeric
         The masked ground-truth matrix to be reconstructed.
+    
+    mask: numeric
+        The bit-mask matrix that was used to create ``masked_matrix``.
 
     meets_stop_criteria: function
         A function that returns a boolean whether to terminate the training loop
@@ -160,6 +163,7 @@ def train(max_epochs, matrix_factor_dimensions, masked_matrix,
     -------
         The reconstructed matrix produced by the DeepMatrixFactorization model.
     """
+    to_report = lambda x: x.detach().cpu().numpy()
 
     model = DeepMatrixFactorization(matrix_factor_dimensions).to(device)
     optimizer = torch.optim.Adam(model.parameters())
@@ -181,18 +185,15 @@ def train(max_epochs, matrix_factor_dimensions, masked_matrix,
         # Gradient step
         optimizer.step()
 
-        detached_loss = loss.detach().cpu().numpy()
-
         if e % report_frequency == 0:
-            report(reconstructed_matrix.detach().cpu().numpy(), e, detached_loss, False)
+            report(to_report(reconstructed_matrix), e, to_report(loss), False)
 
-        if meets_stop_criteria(e, detached_loss):
+        if meets_stop_criteria(e, to_report(loss)):
             break
         
-    result = reconstructed_matrix.detach().cpu().numpy()
-    report(result, e, detached_loss, True)
+    report(to_report(reconstructed_matrix), e, to_report(loss), True)
 
-    return result
+    return reconstructed_matrix
 
 
 def iterated_soft_thresholding(matrix, mask, err=1e-6, normfac=1, insweep=200, tol=1e-4, decfac=0.9,

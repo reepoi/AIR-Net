@@ -245,41 +245,32 @@ def run_test(**args):
 
 def run_aneursym(**args):
     time = 0
-    aneurysm_timeframe = data.AneurysmTimeframe(time=time, filepath=args['data_dir'] / 'aneurysm' / f'vel_2Daneu_crop.{time}.csv')
-    vel_by_time = data.AneurysmVelocityByTime(filepath_vel_by_time=args['data_dir'] / 'aneurysm' / f'vel_by_time.csv', aneurysm_timeframe=aneurysm_timeframe)
+    at = data.AneurysmTimeframe(time=time, filepath=args['data_dir'] / 'aneurysm' / f'vel_2Daneu_crop.{time}.csv')
+    at_grid = at.as_completable(grid_density=100)
+    # vel_by_time = data.AneurysmVelocityByTime(filepath_vel_by_time=args['data_dir'] / 'aneurysm' / f'vel_by_time.csv', aneurysm_timeframe=aneurysm_timeframe)
 
-
-    # vec_field = load_aneu_timeframe(args['aneu_path'], args['grid_density'])
- 
-    # grid_coords = Coordinates(*np.meshgrid(
-    #     np.linspace(np.min(vec_field.coords.x), np.max(vec_field.coords.x), num=args['grid_density']),
-    #     np.linspace(np.min(vec_field.coords.y), np.max(vec_field.coords.y), num=args['grid_density'])
-    # ))
 
     # grid_vec_field = interp_vector_field(vec_field, grid_coords, fill_value=0)
     # save_VectorField(grid_vec_field, f'{args["save_dir"]}/interpolated')
     # fig, _ = plots.quiver(*list_VectorField(grid_vec_field), scale=400,
     #                       save_path=f'{args["save_dir"]}/interpolated.png')
 
-    # matrix = grid_vec_field.velx
 
     # print(f'velx Rank: {num_large_singular_values(grid_vec_field.velx)}')
     # print(f'vely Rank: {num_large_singular_values(grid_vec_field.vely)}')
 
 
-    matrix = vel_by_time.as_completable1()
-    rows, cols = matrix.shape
+    rows, cols = at_grid.vec_field.velx.shape
     matrix_factor_dimensions = [model.Shape(rows=rows, cols=rows) for _ in range(args['num_factors'] - 1)]
     matrix_factor_dimensions.append(model.Shape(rows=rows, cols=cols))
 
     print(matrix_factor_dimensions)
 
-    mask = model.get_bit_mask(matrix.shape, args['mask_rate'])
+    mask = model.get_bit_mask((rows, cols), args['mask_rate'])
     mask_numpy = mask.cpu().numpy()
 
-    # grid_vec_field_masked = VectorField(coords=grid_vec_field.coords,
-    #                                     velx=grid_vec_field.velx * mask_numpy,
-    #                                     vely=grid_vec_field.vely * mask_numpy)
+    at_grid_masked = at_grid.transform(lambda vel: vel * mask_numpy)
+
     # save_VectorField(grid_vec_field_masked, f'{args["save_dir"]}/interpolated_masked')
     # fig, _ = plots.quiver(*list_VectorField(grid_vec_field_masked), scale=400,
     #                        save_path=f'{args["save_dir"]}/masked_interpolated.png')
@@ -291,39 +282,34 @@ def run_aneursym(**args):
         # vel = interp_griddata(ravel_Coordinates(grid_vec_field.coords), reconstructed_matrix.ravel(), vec_field.coords)
         # nmae_against_original = model.norm_mean_abs_error(vel, getattr(vec_field, column), lib=np)
         # print(f'Column: {column}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE (Original): {nmae_against_original:.5e}')
+        print(f'Epoch: {epoch}, Loss: {loss:.5e}')
         if last_report:
             print(f'\n*** END {column} ***\n')
     
     print(f'Mask Rate: {args["mask_rate"]}')
-    rec_matrix=model.iterated_soft_thresholding(matrix, mask_numpy,
-                                                report_frequency=args['report_frequency'],
-                                                report=lambda *args: vel_by_time.accuracy_report1(*args, column='velx', ground_truth_matrix=matrix))
-    reconstructed_grid_vec_field = VectorField(
-        coords=grid_vec_field.coords,
-        velx=rec_matrix[0::2, 0],
-        vely=rec_matrix[1::2, 0]
-        # velx=model.iterated_soft_thresholding(grid_vec_field.velx, mask_numpy,
-        #                                       report_frequency=args['report_frequency'],
-        #                                       report=lambda *args: report(*args, column='velx')),
-        # vely=model.iterated_soft_thresholding(grid_vec_field.vely, mask_numpy,
-        #                                       report_frequency=args['report_frequency'],
-        #                                       report=lambda *args: report(*args, column='vely'))
-        # velx=model.train(args['max_epochs'], matrix_factor_dimensions, torch.tensor(grid_vec_field.velx).to(device), mask,
-        #                  meets_stop_criteria=meets_stop_criteria,
-        #                  report_frequency=args['report_frequency'], report=lambda *args: report(*args, column='velx')),
-        # vely=model.train(args['max_epochs'], matrix_factor_dimensions, torch.tensor(grid_vec_field.vely).to(device), mask,
-        #                  meets_stop_criteria=meets_stop_criteria,
-        #                  report_frequency=args['report_frequency'], report=lambda *args: report(*args, column='vely'))
+    trainer = lambda vel: model.train(
+        max_epochs=args['max_epochs'],
+        matrix_factor_dimensions=matrix_factor_dimensions,
+        masked_matrix=vel,
+        mask=mask,
+        meets_stop_criteria=meets_stop_criteria,
+        report_frequency=args['report_frequency'],
+        report=lambda *args: report(*args, column='test')
     )
-    save_VectorField(reconstructed_grid_vec_field, f'{args["save_dir"]}/reconstructed_interpolated')
-    fig, _ = plots.quiver(*list_VectorField(reconstructed_grid_vec_field), scale=400,
-                           save_path=f'{args["save_dir"]}/reconstructed_interpolated.png')
+    at_grid_masked_rec = at_grid_masked.numpy_to_torch().transform(trainer).torch_to_numpy()
+    # rec_matrix=model.iterated_soft_thresholding(matrix, mask_numpy,
+    #                                             report_frequency=args['report_frequency'],
+    #                                             report=lambda *args: vel_by_time.accuracy_report1(*args, column='velx', ground_truth_matrix=matrix))
 
-    reconstructed_vec_field = interp_vector_field(ravel_VectorField(reconstructed_grid_vec_field), vec_field.coords)
-    save_VectorField(reconstructed_vec_field, f'{args["save_dir"]}/reconstructed')
-    fig, _ = plots.quiver(reconstructed_vec_field.coords.x, reconstructed_vec_field.coords.y,
-                           reconstructed_vec_field.velx, reconstructed_vec_field.vely, scale=400,
-                           save_path=f'{args["save_dir"]}/reconstructed.png')
+    # save_VectorField(reconstructed_grid_vec_field, f'{args["save_dir"]}/reconstructed_interpolated')
+    # fig, _ = plots.quiver(*list_VectorField(reconstructed_grid_vec_field), scale=400,
+    #                        save_path=f'{args["save_dir"]}/reconstructed_interpolated.png')
+
+    # reconstructed_vec_field = interp_vector_field(ravel_VectorField(reconstructed_grid_vec_field), vec_field.coords)
+    # save_VectorField(reconstructed_vec_field, f'{args["save_dir"]}/reconstructed')
+    # fig, _ = plots.quiver(reconstructed_vec_field.coords.x, reconstructed_vec_field.coords.y,
+    #                        reconstructed_vec_field.velx, reconstructed_vec_field.vely, scale=400,
+    #                        save_path=f'{args["save_dir"]}/reconstructed.png')
 
     plots.plt.close('all')
 

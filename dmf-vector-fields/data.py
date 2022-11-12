@@ -32,14 +32,14 @@ class Coordinates:
 
         Parameters
         ----------
-        tranform_func: function(ndarray)
+        transform_func: function(ndarray)
             The transform to apply.
         
         Returns
         -------
             ``Coordinates``
         """
-        return Coordinates(x=tranform_func(x), y=tranform_func(y))
+        return Coordinates(x=transform_func(self.x), y=transform_func(self.y))
 
 
     def ravel(self):
@@ -147,8 +147,8 @@ class VectorField:
             A VectorField on defined on new Coordinates.
         """
         coords = self.coords.bounding_grid(grid_density)
-        new_velx = interp_griddata(vec_field.coords, vec_field.velx, coords, **interp_opts)
-        new_vely = interp_griddata(vec_field.coords, vec_field.vely, coords, **interp_opts)
+        new_velx = interp_griddata(self.coords, self.velx, coords, **interp_opts)
+        new_vely = interp_griddata(self.coords, self.vely, coords, **interp_opts)
         return VectorField(coords=coords, velx=new_velx, vely=new_vely)
 
 
@@ -181,7 +181,7 @@ class VectorField:
             A VectorField
         """
         return VectorField(
-            coords=self.coords.tranform(tranform_func) if apply_to_coords else coords,
+            coords=self.coords.transform(transform_func) if apply_to_coords else self.coords,
             velx=transform_func(self.velx),
             vely=transform_func(self.vely)
         )
@@ -220,7 +220,6 @@ class AneurysmTimeframe:
         Load and preprocess one timeframe of the 2d aneurysm data set.
         Any duplicate spatial coordinates are removed.
         """
-        self.filepath = filepath
         data = pd.read_csv(self.filepath)
         col_idxs, col_names = [0, 1, 3, 4], ['velx', 'vely', 'x', 'y']
         data = data.rename(columns={data.columns[i]: n for i, n in zip(col_idxs, col_names)})
@@ -237,26 +236,18 @@ class AneurysmTimeframe:
         )
     
 
-    def as_completable(self, *args, **kwargs):
+    def as_completable(self, grid_density):
         """
         Returns a tuple of velx and vely.
 
-        Parameters
-        ----------
-        args: tuple
-            Arguments to pass to :func:`VectorField.as_completable`.
-
-        kwargs: dict
-            Keyword arguments to pass to :func:`VectorField.as_completable`.
-
         Returns
         -------
-            ``AneurysmTimeframe``
+            An ``AneurysmTimeframe`` with ``filepath=None``.
         """
         return AneurysmTimeframe(
             time=self.time,
             filepath=None,
-            vec_field=self.vec_field.as_completable(transform_func, apply_to_coords=apply_to_coords)
+            vec_field=self.vec_field.as_completable(grid_density)
         )
     
 
@@ -272,7 +263,7 @@ class AneurysmTimeframe:
         
         Returns
         -------
-            An AneurysmTimeframe with ``filepath=None``.
+            An ``AneurysmTimeframe`` with ``filepath=None``.
         """
         return AneurysmTimeframe(
             time=self.time,
@@ -289,7 +280,7 @@ class AneurysmTimeframe:
         -------
             ``AneurysmTimeframe`` whose data are numpy ndarrays.
         """
-        transform_func = lambda x: np.ndarray(x.detach().cpu())
+        transform_func = lambda x: x.detach().cpu().numpy()
         return self.transform(transform_func, apply_to_coords=True)
     
 
@@ -427,7 +418,7 @@ class AneurysmVelocityByTime:
         -------
             ``AneursymVelocityByTime``
         """
-        coords = self.coords.transform(tranform_func) if apply_to_coords else self.coords
+        coords = self.coords.transform(transform_func) if apply_to_coords else self.coords
         if interleved:
             num_points, timeframes = self.velx_by_time.shape
             completable = self.lib.zeros((num_points * 2, timeframe))
@@ -497,5 +488,7 @@ def interp_griddata(coords: Coordinates, func_values, new_coords: Coordinates, *
         numeric
         The interpolated function values.
     """
-    return interp.griddata(coords, func_values, new_coords, method='linear', **kwargs)
+    xy = coords.x, coords.y
+    new_xy = new_coords.x, new_coords.y
+    return interp.griddata(xy, func_values, new_xy, method='linear', **kwargs)
 
