@@ -331,7 +331,7 @@ class AneurysmVelocityByTime:
     velx_by_time: np.ndarray
     vely_by_time: np.ndarray
 
-    def __init__(self, coords: Coordinates, filepath_vel_by_time=None, velx_by_time=None, vel_by_time=None):
+    def __init__(self, coords: Coordinates, filepath_vel_by_time=None, velx_by_time=None, vely_by_time=None):
         self.coords = coords
         self.filepath_vel_by_time = filepath_vel_by_time
         if filepath_vel_by_time is None:
@@ -348,7 +348,7 @@ class AneurysmVelocityByTime:
         # x   y   velx      vely
         # 1.9 0.0 -0.000152 -8.057502e-07
         data = pd.read_csv(self.filepath_vel_by_time, header=None)
-        data = data.drop_duplicates() # remove 2 duplicate rows
+        # data = data.drop_duplicates() # remove 2 duplicate rows
         data = data.to_numpy()
         self.velx_by_time = data[0::2]
         self.vely_by_time = data[1::2]
@@ -417,12 +417,12 @@ class AneurysmVelocityByTime:
         -------
             ``AneurysmVelocityByTime``
         """
-        if interleved:
-            num_points, timeframes = self.velx_by_time.shape
-            matrix = self.lib.zeros((num_points * 2, timeframe))
-            matrix[0::2] = velx_by_time
-            matrix[1::2] = vely_by_time
-            return matrix
+        # if interleved:
+        #     num_points = self.velx_by_time.shape[0]
+        #     matrix = self.lib.zeros((num_points * 2, self.timeframes))
+        #     matrix[0::2] = self.velx_by_time
+        #     matrix[1::2] = self.vely_by_time
+        #     return matrix
         return self
 
 
@@ -447,10 +447,10 @@ class AneurysmVelocityByTime:
         """
         coords = self.coords.transform(transform_func) if apply_to_coords else self.coords
         if interleved:
-            num_points, timeframes = self.velx_by_time.shape
-            completable = self.lib.zeros((num_points * 2, timeframe))
-            completable[0::2] = velx_by_time
-            completable[1::2] = vely_by_time
+            num_points = self.velx_by_time.shape[0]
+            completable = self.lib.zeros((num_points * 2, self.timeframes))
+            completable[0::2] = self.velx_by_time
+            completable[1::2] = self.vely_by_time
             transformed = transform_func(completable)
             return AneurysmVelocityByTime(
                 filepath_vel_by_time=self.filepath_vel_by_time,
@@ -491,6 +491,13 @@ class AneurysmVelocityByTime:
         return self.transform(transform_func, interleved=False, apply_to_coords=True)
 
 
+    def save(self, path):
+        save = lambda name, arr: np.savetxt(f'{path}_{name}.csv', arr, delimiter=',')
+        self.coords.save(path)
+        save('velx_by_time', self.velx_by_time)
+        save('vely_by_time', self.vely_by_time)
+
+
 def interp_griddata(coords: Coordinates, func_values, new_coords: Coordinates, **kwargs):
     """
     Runs SciPy Interpolate's griddata. This method is to
@@ -520,10 +527,3 @@ def interp_griddata(coords: Coordinates, func_values, new_coords: Coordinates, *
     xy = coords.x, coords.y
     new_xy = new_coords.x, new_coords.y
     return interp.griddata(xy, func_values, new_xy, method='linear', **kwargs)
-
-
-    def save(self, path):
-        save = lambda name, arr: np.savetxt(f'{path}_{name}.csv', arr, delimiter=',')
-        self.coords.save(path)
-        save('velx_by_time', self.velx_by_time)
-        save('vely_by_time', self.vely_by_time)
