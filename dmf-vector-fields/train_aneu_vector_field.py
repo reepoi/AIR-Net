@@ -1,5 +1,6 @@
 import argparse
 from collections import namedtuple, OrderedDict
+import enum
 import itertools
 import os
 import json
@@ -20,6 +21,7 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 Coordinates = namedtuple('Coordinates', ['x', 'y'])
 VectorField = namedtuple('VectorField', ['coords', 'velx', 'vely'])
+
 
 
 def get_argparser():
@@ -74,7 +76,16 @@ def vec_field_component_names():
 
 
 def run_test(**args):
-    run_velocity_by_time(**args)
+    if True: # aneurysm
+        time = 0
+        tf = data.AneurysmTimeframe(time=time, filepath=args['data_dir'] / 'aneurysm' / f'vel_2Daneu_crop.{time}.csv')
+        vbt = data.AneurysmVelocityByTime(
+            coords=tf.vec_field.coords,
+            filepath_vel_by_time=args['data_dir'] / 'aneurysm' / 'my_vel_by_time.csv',
+        )
+        run_velocity_by_time(vbt, **args)
+        # for t in range(vbt.timeframes):
+        #     run_timeframe(vbt.timeframe(t), **args)
 
 
 def run_timeframe(tf, **args):
@@ -123,34 +134,63 @@ def run_timeframe(tf, **args):
     tf_grid_masked_rec.vec_field.interp(coords=tf.vec_field.coords).save(save_dir_timeframe('reconstructed'))
 
 
-def run_velocity_by_time(**args):
+def run_velocity_by_time(vbt, **args):
+    report_time = 0
+    interleved = True
     save_dir = lambda p: f'{args["save_dir"]}/{p}'
-    time = 0
-    tf = data.AneurysmTimeframe(time=time, filepath=args['data_dir'] / 'aneurysm' / f'vel_2Daneu_crop.{time}.csv')
-    vbt = data.AneurysmVelocityByTime(
-        coords=tf.vec_field.coords,
-        filepath_vel_by_time=args['data_dir'] / 'aneurysm' / 'my_vel_by_time.csv',
-        # filepath_vel_by_time=args['data_dir'] / 'aneurysm' / 'vel_by_time.csv',
-    )
 
-    # tfs = []
-    for t in range(vbt.timeframes):
-        # tf = data.AneurysmTimeframe(time=time, filepath=args['data_dir'] / 'aneurysm' / f'vel_2Daneu_crop.{time}.csv')
-        # tfs.append(tf)
-        tf = vbt.timeframe(t)
-        # tf.vec_field.save(save_dir('test_vector_field'))
-        run_timeframe(tf, **args)
-        break
-    # velxs = [tf.vec_field.velx.reshape(-1, 1) for tf in tfs]
-    # velys = [tf.vec_field.vely.reshape(-1, 1) for tf in tfs]
-    # vbt = data.AneurysmVelocityByTime(coords=vbt.coords, velx_by_time=np.hstack(velxs), vely_by_time=np.hstack(velys))
-    # matrix = vbt.as_completable(interleved=True)
-    # save = lambda name, arr: np.savetxt(f'{args["save_dir"]}_{name}.csv', arr, delimiter=',')
-    # save('new_vbt', matrix)
+    rows, cols = vbt.shape_as_completable(interleved=interleved)
+    matrix_factor_dimensions = [model.Shape(rows=rows, cols=rows) for _ in range(args['num_factors'] - 1)]
+    matrix_factor_dimensions.append(model.Shape(rows=rows, cols=cols))
+    print(matrix_factor_dimensions)
+    
+    mask = model.get_bit_mask((rows, cols), args['mask_rate'])
+    mask_numpy = mask.cpu().numpy()
+
+    def meets_stop_criteria(epoch, loss):
+        return loss < args['desired_loss']
+
+    def report(reconstructed_matrix, epoch, loss, last_report: bool, component):
+        tf = vbt.timeframe(report_time)
+        if interleved:
+            vf = data.VectorField(
+                coords=tf.vec_field.coords,
+                velx=reconstructed_matrix[0::2, report_time],
+                vely=reconstructed_matrix[1::2, report_time]
+            )
+            nmae_against_original_velx = model.norm_mean_abs_error(vf.velx, tf.vec_field.velx, lib=np)
+            nmae_against_original_vely = model.norm_mean_abs_error(vf.vely, tf.vec_field.vely, lib=np)
+            print(f'Component: all, Epoch: {epoch}, Loss: {loss:.5e}, NMAE_velx (Original): {nmae_against_original_velx:.5e}, NMAE_vely (Original): {nmae_against_original_vely:.5e}')
+        else:
+            nmae_against_original = model.norm_mean_abs_error(reconstructed_matrix[:, report_time], getattr(tf.vec_field, component), lib=np)
+            print(f'Component: {component}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE (Original): {nmae_against_original:.5e}')
+        if last_report:
+            print(f'\n*** END {"all" if interleved else component} ***\n')
+    
+    training_names = vec_field_component_names()
+    def trainer(vel):
+        name = next(training_names)
+        return model.train(
+            max_epochs=args['max_epochs'],
+            matrix_factor_dimensions=matrix_factor_dimensions,
+            masked_matrix=vel,
+            mask=mask,
+            meets_stop_criteria=meets_stop_criteria,
+            report_frequency=args['report_frequency'],
+            report=lambda *args: report(*args, component=name)
+        )
+
+    vbt.transform(lambda vel: vel * mask_numpy, interleved=interleved)
+    vbt.save(save_dir('masked'), plot_time=report_time)
+
+    print(f'Mask Rate: {args["mask_rate"]}')
+    vbt_rec = vbt.numpy_to_torch().transform(trainer, interleved=interleved).torch_to_numpy()
+    vbt_rec.save(save_dir('reconstructed'), plot_time=report_time)
 
 
 if __name__ == '__main__':
     args = get_argparser().parse_args().__dict__
+
     if args['run_matrix_config']:
         config_values = OrderedDict(
             num_factors=[2, 3, 4, 5],

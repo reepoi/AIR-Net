@@ -334,8 +334,8 @@ class AneurysmVelocityByTime:
     def __init__(self, coords: Coordinates, filepath_vel_by_time=None, velx_by_time=None, vely_by_time=None):
         self.coords = coords
         self.filepath_vel_by_time = filepath_vel_by_time
-        if filepath_vel_by_time is None:
-            assert all(o is not None for o in (velx_by_time, vely_by_time)), 'These must not be None if filepath_vel_by_time is None'
+        if velx_by_time is not None:
+            assert vely_by_time is not None, 'Both vel[x,y]_by_time must not be None'
             self.velx_by_time = velx_by_time
             self.vely_by_time = vely_by_time
         else:
@@ -402,7 +402,7 @@ class AneurysmVelocityByTime:
         )
     
 
-    def as_completable(self, interleved=True):
+    def shape_as_completable(self, interleved=True):
         """
         Returns a matrix for completion.
 
@@ -417,13 +417,17 @@ class AneurysmVelocityByTime:
         -------
             ``AneurysmVelocityByTime``
         """
+        shape = self.velx_by_time.shape
+        if interleved:
+            shape = (shape[0] * 2, shape[1])
+        return shape
         # if interleved:
         #     num_points = self.velx_by_time.shape[0]
         #     matrix = self.lib.zeros((num_points * 2, self.timeframes))
         #     matrix[0::2] = self.velx_by_time
         #     matrix[1::2] = self.vely_by_time
         #     return matrix
-        return self
+        # return self
 
 
     def transform(self, transform_func, interleved=True, apply_to_coords=False):
@@ -448,7 +452,9 @@ class AneurysmVelocityByTime:
         coords = self.coords.transform(transform_func) if apply_to_coords else self.coords
         if interleved:
             num_points = self.velx_by_time.shape[0]
-            completable = self.lib.zeros((num_points * 2, self.timeframes))
+            completable = self.lib.zeros(self.shape_as_completable(interleved=interleved))
+            if self.lib.__name__ == 'torch':
+                completable = completable.to(device)
             completable[0::2] = self.velx_by_time
             completable[1::2] = self.vely_by_time
             transformed = transform_func(completable)
@@ -458,12 +464,11 @@ class AneurysmVelocityByTime:
                 velx_by_time=transformed[0::2],
                 vely_by_time=transformed[1::2]
             )
-        velx_by_time, vely_by_time = completable
         return AneurysmVelocityByTime(
             filepath_vel_by_time=self.filepath_vel_by_time,
             coords=coords,
-            velx_by_time=transform_func(velx_by_time),
-            vely_by_time=transform_func(vely_by_time)
+            velx_by_time=transform_func(self.velx_by_time),
+            vely_by_time=transform_func(self.vely_by_time)
         )
     
 
@@ -491,11 +496,15 @@ class AneurysmVelocityByTime:
         return self.transform(transform_func, interleved=False, apply_to_coords=True)
 
 
-    def save(self, path):
+    def save(self, path, plot_time=None):
         save = lambda name, arr: np.savetxt(f'{path}_{name}.csv', arr, delimiter=',')
         self.coords.save(path)
         save('velx_by_time', self.velx_by_time)
         save('vely_by_time', self.vely_by_time)
+        if plot_time:
+            fig, _ = plots.quiver(*self.timeframe(plot_time).to_tuple(), scale=400, save_path=f'{path}.png')
+            plots.plt.close(fig)
+
 
 
 def interp_griddata(coords: Coordinates, func_values, new_coords: Coordinates, **kwargs):
