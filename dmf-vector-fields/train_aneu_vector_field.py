@@ -45,80 +45,6 @@ def get_argparser():
     return parser
 
 
-def ravel_Coordinates(coords: Coordinates):
-    """
-    Flattens the Coordinate's components' shape.
-
-    Parameters
-    ----------
-    coords: Coordinates
-        A Coordinates instance.
-    
-    Returns
-    -------
-        A new Coordinates instance with components whose
-        shape is flattened.
-    """
-    return Coordinates(x=coords.x.ravel(), y=coords.y.ravel())
-
-
-def ravel_VectorField(vec_field: VectorField):
-    """
-    Flattens the shape of the VectorField's Coordinates,
-    and its velx and vely components.
-
-    Parameters
-    ----------
-    vec_field: VectorField
-        A VectorField instance.
-    
-    Returns
-    -------
-        A new VectorField instance with components whose
-        shape is flattened.
-    """
-    return VectorField(
-        coords=ravel_Coordinates(vec_field.coords),
-        velx=vec_field.velx.ravel(),
-        vely=vec_field.vely.ravel()
-    )
-
-
-def list_VectorField(vec_field: VectorField):
-    """
-    Lists out all the data fields of a VectorField.
-
-    Parameters
-    ----------
-    vec_field: VectorField
-        A VectorField instance.
-
-    Returns
-    -------
-        A tuple of all the data fields of a VectorField.
-    """
-    return vec_field.coords.x, vec_field.coords.y, vec_field.velx, vec_field.vely
-
-
-def save_VectorField(vec_field: VectorField, directory):
-    """
-    Saves the data of a VectorField using ``np.savetxt``.
-
-    Parameters
-    ----------
-    vec_field: VectorField
-        A VectorField instance.
-    
-    directory: str
-        The directory where the files should be saved.
-    """
-    save = lambda name, arr: np.savetxt(f'{directory}_{name}.csv', arr, delimiter=',')
-    save('coords_x', vec_field.coords.x)
-    save('coords_y', vec_field.coords.y)
-    save('velx', vec_field.velx)
-    save('vely', vec_field.vely)
-
-
 def num_large_singular_values(matrix, threshold=5e-1):
     """
     Returns the number of singular values greater than some
@@ -141,6 +67,12 @@ def num_large_singular_values(matrix, threshold=5e-1):
     return np.sum(np.where(s > threshold, 1, 0))
 
 
+def vec_field_component_names():
+    names = ['velx', 'vely']
+    for n in names:
+        yield n
+
+
 def run_test(**args):
     run_aneursym(**args)
 
@@ -148,51 +80,59 @@ def run_test(**args):
 def run_aneursym(**args):
     save_dir = lambda p: f'{args["save_dir"]}/{p}'
     time = 0
-    at = data.AneurysmTimeframe(time=time, filepath=args['data_dir'] / 'aneurysm' / f'vel_2Daneu_crop.{time}.csv')
-    at_grid = at.as_completable(grid_density=args['grid_density'])
+    tf = data.AneurysmTimeframe(time=time, filepath=args['data_dir'] / 'aneurysm' / f'vel_2Daneu_crop.{time}.csv')
+    vbt = data.AneurysmVelocityByTime(
+        coords=tf.vec_field.coords,
+        filepath_vel_by_time=args['data_dir'] / 'aneurysm' / 'vel_by_time.csv',
+    )
 
-    at_grid.vec_field.save(save_dir('interpolated'))
+    for t in range(vbt.timeframes):
+        # tf = vbt.timeframe(time=t)
+        save_dir_timeframe = lambda p: f'{save_dir(p)}.{t}'
 
-    rows, cols = at_grid.vec_field.velx.shape
-    matrix_factor_dimensions = [model.Shape(rows=rows, cols=rows) for _ in range(args['num_factors'] - 1)]
-    matrix_factor_dimensions.append(model.Shape(rows=rows, cols=cols))
+        tf_grid = tf.as_completable(grid_density=args['grid_density'])
+        tf_grid.vec_field.save(save_dir_timeframe('interpolated'))
 
-    print(matrix_factor_dimensions)
+        rows, cols = tf_grid.vec_field.velx.shape
+        matrix_factor_dimensions = [model.Shape(rows=rows, cols=rows) for _ in range(args['num_factors'] - 1)]
+        matrix_factor_dimensions.append(model.Shape(rows=rows, cols=cols))
+        print(matrix_factor_dimensions)
 
-    mask = model.get_bit_mask((rows, cols), args['mask_rate'])
-    mask_numpy = mask.cpu().numpy()
+        def meets_stop_criteria(epoch, loss):
+            return loss < args['desired_loss']
 
-    at_grid_masked = at_grid.transform(lambda vel: vel * mask_numpy)
+        def report(reconstructed_matrix, epoch, loss, last_report: bool, component):
+            vel = data.interp_griddata(tf_grid.vec_field.coords, reconstructed_matrix, tf.vec_field.coords)
+            nmae_against_original = model.norm_mean_abs_error(vel, getattr(tf.vec_field, component), lib=np)
+            print(f'Component: {component}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE (Original): {nmae_against_original:.5e}')
+            if last_report:
+                print(f'\n*** END {component} ***\n')
+        
+        training_names = vec_field_component_names()
+        def trainer(vel):
+            name = next(training_names)
+            return model.train(
+                max_epochs=args['max_epochs'],
+                matrix_factor_dimensions=matrix_factor_dimensions,
+                masked_matrix=vel,
+                mask=mask,
+                meets_stop_criteria=meets_stop_criteria,
+                report_frequency=args['report_frequency'],
+                report=lambda *args: report(*args, component=name)
+            )
 
-    at_grid_masked.vec_field.save(save_dir('masked_interpolated'))
+        mask = model.get_bit_mask((rows, cols), args['mask_rate'])
+        mask_numpy = mask.cpu().numpy()
 
-    def meets_stop_criteria(epoch, loss):
-        return loss < args['desired_loss']
+        tf_grid_masked = tf_grid.transform(lambda vel: vel * mask_numpy)
+        tf_grid_masked.vec_field.save(save_dir_timeframe('masked_interpolated'))
 
-    def report(reconstructed_matrix, epoch, loss, last_report: bool, component):
-        vel = data.interp_griddata(at_grid.vec_field.coords, reconstructed_matrix, at.vec_field.coords)
-        nmae_against_original = model.norm_mean_abs_error(vel, getattr(at.vec_field, component), lib=np)
-        print(f'Component: {component}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE (Original): {nmae_against_original:.5e}')
-        if last_report:
-            print(f'\n*** END {component} ***\n')
-    
-    print(f'Mask Rate: {args["mask_rate"]}')
-    training_names = (n for n in ('velx', 'vely'))
-    def trainer(vel):
-        name = next(training_names)
-        return model.train(
-            max_epochs=args['max_epochs'],
-            matrix_factor_dimensions=matrix_factor_dimensions,
-            masked_matrix=vel,
-            mask=mask,
-            meets_stop_criteria=meets_stop_criteria,
-            report_frequency=args['report_frequency'],
-            report=lambda *args: report(*args, component=name)
-        )
-    at_grid_masked_rec = at_grid_masked.numpy_to_torch().transform(trainer).torch_to_numpy()
+        print(f'Mask Rate: {args["mask_rate"]}')
+        tf_grid_masked_rec = tf_grid_masked.numpy_to_torch().transform(trainer).torch_to_numpy()
+        tf_grid_masked_rec.vec_field.save(save_dir_timeframe('reconstructed_interpolated'))
+        tf_grid_masked_rec.vec_field.interp(coords=tf.vec_field.coords).save(save_dir_timeframe('reconstructed'))
+        break
 
-    at_grid_masked_rec.vec_field.save(save_dir('reconstructed_interpolated'))
-    at_grid_masked_rec.vec_field.interp(coords=at.vec_field.coords).save(save_dir('reconstructed'))
 
 
 if __name__ == '__main__':

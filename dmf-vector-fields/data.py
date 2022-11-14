@@ -82,6 +82,12 @@ class Coordinates:
             indexing='xy'
         )
         return Coordinates(x=x, y=y)
+    
+
+    def save(self, path):
+        save = lambda name, arr: np.savetxt(f'{path}_{name}.csv', arr, delimiter=',')
+        save('x', self.x)
+        save('y', self.y)
 
 
 @dataclass(frozen=True)
@@ -195,7 +201,10 @@ class VectorField:
     
 
     def save(self, path, plot=True):
-        # save = lambda name, arr: np.savetxt(f'{path}_{name}.csv', arr, delimiter=',')
+        save = lambda name, arr: np.savetxt(f'{path}_{name}.csv', arr, delimiter=',')
+        self.coords.save(path)
+        save('velx', self.velx)
+        save('vely', self.vely)
         if plot:
             fig, _ = plots.quiver(*self.to_tuple(), scale=400, save_path=f'{path}.png')
             plots.plt.close(fig)
@@ -309,6 +318,10 @@ class AneurysmTimeframe:
         """
         transform_func = lambda x: torch.tensor(x).to(device)
         return self.transform(transform_func, apply_to_coords=True)
+    
+
+    def save(self, path, plot=True):
+        self.vec_field.save(path, plot=plot)
 
 
 @dataclass
@@ -336,8 +349,7 @@ class AneurysmVelocityByTime:
         # 1.9 0.0 -0.000152 -8.057502e-07
         data = pd.read_csv(self.filepath_vel_by_time, header=None)
         data = data.drop_duplicates() # remove 2 duplicate rows
-        timeframe = self.aneurysm_timeframe.ravel()
-        self.coords = self.aneurysm_timeframe.coords,
+        data = data.to_numpy()
         self.velx_by_time = data[0::2]
         self.vely_by_time = data[1::2]
     
@@ -508,3 +520,10 @@ def interp_griddata(coords: Coordinates, func_values, new_coords: Coordinates, *
     xy = coords.x, coords.y
     new_xy = new_coords.x, new_coords.y
     return interp.griddata(xy, func_values, new_xy, method='linear', **kwargs)
+
+
+    def save(self, path):
+        save = lambda name, arr: np.savetxt(f'{path}_{name}.csv', arr, delimiter=',')
+        self.coords.save(path)
+        save('velx_by_time', self.velx_by_time)
+        save('vely_by_time', self.vely_by_time)
