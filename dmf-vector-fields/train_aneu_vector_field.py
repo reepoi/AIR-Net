@@ -23,6 +23,9 @@ Coordinates = namedtuple('Coordinates', ['x', 'y'])
 VectorField = namedtuple('VectorField', ['coords', 'velx', 'vely'])
 
 
+class DataSet(enum.Enum):
+    ANEURYSM = 'aneurysm'
+
 
 def get_argparser():
     parser = argparse.ArgumentParser(description='Run deep matrix factorization with 2d aneurysm.')
@@ -32,18 +35,28 @@ def get_argparser():
                         help='desired loss for early training termination.')
     parser.add_argument('--num-factors', type=int, default=3,
                         help='number of matrix factors.')
-    parser.add_argument('--grid-density', type=int, default=200,
-                        help='the number of points on the side of the interpolation grid.')
     parser.add_argument('--mask-rate', type=float, default=None,
                         help='the expected precentage of matrix entries to be set to zero.')
-    parser.add_argument('--report-frequency', type=int, default=500,
-                        help='the number of epochs to pass before printing a report to the console.')
+    parser.add_argument('--data-set', type=DataSet,
+                        help='the data set in the data dir to use.')
     parser.add_argument('--data-dir', type=Path,
                         help='path to the matrix completion test data.')
     parser.add_argument('--save-dir', type=str,
                         help='where to save the figures.')
     parser.add_argument('--run-matrix-config', type=bool, default=False,
                         help='run over various test configurations.')
+    parser.add_argument('--report-frequency', type=int, default=500,
+                        help='the number of epochs to pass before printing a report to the console.')
+
+    # Timeframe options
+    parser.add_argument('--grid-density', type=int, default=200,
+                        help='the number of points on the side of the interpolation grid.')
+    parser.add_argument('--timeframe', type=int, default=None,
+                        help='the timeframe to use when the vector field is time dependent.')
+    
+    # VelocityByTime options
+    parser.add_argument('--interleved', type=bool, default=None,
+                        help='interleve the velx and vely data for each point into a single matrix by rows.')
     return parser
 
 
@@ -75,17 +88,10 @@ def vec_field_component_names():
         yield n
 
 
-def run_test(**args):
-    if True: # aneurysm
-        time = 0
-        tf = data.AneurysmTimeframe(time=time, filepath=args['data_dir'] / 'aneurysm' / f'vel_2Daneu_crop.{time}.csv')
-        vbt = data.AneurysmVelocityByTime(
-            coords=tf.vec_field.coords,
-            filepath_vel_by_time=args['data_dir'] / 'aneurysm' / 'my_vel_by_time.csv',
-        )
-        run_velocity_by_time(vbt, **args)
-        # for t in range(vbt.timeframes):
-        #     run_timeframe(vbt.timeframe(t), **args)
+def vel_by_time_field_component_names():
+    names = ['velx_by_time', 'vely_by_time']
+    for n in names:
+        yield n
 
 
 def run_timeframe(tf, **args):
@@ -136,7 +142,7 @@ def run_timeframe(tf, **args):
 
 def run_velocity_by_time(vbt, **args):
     report_time = 0
-    interleved = True
+    interleved = args['interleved']
     save_dir = lambda p: f'{args["save_dir"]}/{p}'
 
     rows, cols = vbt.shape_as_completable(interleved=interleved)
@@ -151,23 +157,39 @@ def run_velocity_by_time(vbt, **args):
         return loss < args['desired_loss']
 
     def report(reconstructed_matrix, epoch, loss, last_report: bool, component):
-        tf = vbt.timeframe(report_time)
         if interleved:
-            vf = data.VectorField(
-                coords=tf.vec_field.coords,
-                velx=reconstructed_matrix[0::2, report_time],
-                vely=reconstructed_matrix[1::2, report_time]
+            vbt_reported = data.AneurysmVelocityByTime(
+                coords=vbt.coords,
+                velx_by_time=reconstructed_matrix[0::2],
+                vely_by_time=reconstructed_matrix[1::2]
             )
-            nmae_against_original_velx = model.norm_mean_abs_error(vf.velx, tf.vec_field.velx, lib=np)
-            nmae_against_original_vely = model.norm_mean_abs_error(vf.vely, tf.vec_field.vely, lib=np)
+            nmae_against_original_velx = model.norm_mean_abs_error(vbt.velx_by_time, vbt_reported.velx_by_time, lib=np)
+            nmae_against_original_vely = model.norm_mean_abs_error(vbt.vely_by_time, vbt_reported.vely_by_time, lib=np)
             print(f'Component: all, Epoch: {epoch}, Loss: {loss:.5e}, NMAE_velx (Original): {nmae_against_original_velx:.5e}, NMAE_vely (Original): {nmae_against_original_vely:.5e}')
         else:
-            nmae_against_original = model.norm_mean_abs_error(reconstructed_matrix[:, report_time], getattr(tf.vec_field, component), lib=np)
+            nmae_against_original = model.norm_mean_abs_error(reconstructed_matrix, getattr(vbt, component), lib=np)
             print(f'Component: {component}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE (Original): {nmae_against_original:.5e}')
         if last_report:
             print(f'\n*** END {"all" if interleved else component} ***\n')
+
+    # def report(reconstructed_matrix, epoch, loss, last_report: bool, component):
+    #     tf = vbt.timeframe(report_time)
+    #     if interleved:
+    #         vf = data.VectorField(
+    #             coords=tf.vec_field.coords,
+    #             velx=reconstructed_matrix[0::2, report_time],
+    #             vely=reconstructed_matrix[1::2, report_time]
+    #         )
+    #         nmae_against_original_velx = model.norm_mean_abs_error(vf.velx, tf.vec_field.velx, lib=np)
+    #         nmae_against_original_vely = model.norm_mean_abs_error(vf.vely, tf.vec_field.vely, lib=np)
+    #         print(f'Component: all, Epoch: {epoch}, Loss: {loss:.5e}, NMAE_velx (Original): {nmae_against_original_velx:.5e}, NMAE_vely (Original): {nmae_against_original_vely:.5e}')
+    #     else:
+    #         nmae_against_original = model.norm_mean_abs_error(reconstructed_matrix[:, report_time], getattr(tf.vec_field, component), lib=np)
+    #         print(f'Component: {component}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE (Original): {nmae_against_original:.5e}')
+    #     if last_report:
+    #         print(f'\n*** END {"all" if interleved else component} ***\n')
     
-    training_names = vec_field_component_names()
+    training_names = vel_by_time_field_component_names()
     def trainer(vel):
         name = next(training_names)
         return model.train(
@@ -180,12 +202,27 @@ def run_velocity_by_time(vbt, **args):
             report=lambda *args: report(*args, component=name)
         )
 
-    vbt.transform(lambda vel: vel * mask_numpy, interleved=interleved)
-    vbt.save(save_dir('masked'), plot_time=report_time)
+    vbt_masked = vbt.transform(lambda vel: vel * mask_numpy, interleved=interleved)
+    vbt_masked.save(save_dir('masked'), plot_time=report_time)
 
     print(f'Mask Rate: {args["mask_rate"]}')
-    vbt_rec = vbt.numpy_to_torch().transform(trainer, interleved=interleved).torch_to_numpy()
+    vbt_rec = vbt_masked.numpy_to_torch().transform(trainer, interleved=interleved).torch_to_numpy()
     vbt_rec.save(save_dir('reconstructed'), plot_time=report_time)
+
+
+def run_test(**args):
+    ds = args['data_set']
+    if ds is DataSet.ANEURYSM:
+        time = 0
+        tf = data.AneurysmTimeframe(time=time, filepath=args['data_dir'] / DataSet.ANEURYSM.value / f'vel_2Daneu_crop.{time}.csv')
+        vbt = data.AneurysmVelocityByTime(
+            coords=tf.vec_field.coords,
+            filepath_vel_by_time=args['data_dir'] / DataSet.ANEURYSM.value / 'my_vel_by_time.csv',
+        )
+        run_velocity_by_time(vbt, **args)
+        # for t in range(vbt.timeframes):
+        #     run_timeframe(vbt.timeframe(t), **args)
+        #     break
 
 
 if __name__ == '__main__':

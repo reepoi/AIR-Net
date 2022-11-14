@@ -169,7 +169,6 @@ def train(max_epochs, matrix_factor_dimensions, masked_matrix, mask,
     optimizer = torch.optim.Adam(model.parameters())
 
     model.train()
-    height, width = masked_matrix.shape
 
     for e in range(max_epochs):
 

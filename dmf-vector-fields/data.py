@@ -480,7 +480,7 @@ class AneurysmVelocityByTime:
         -------
             ``AneurysmVelocityByTime`` whose data are numpy ndarrays.
         """
-        transform_func = lambda x: np.ndarray(x.detach().cpu())
+        transform_func = lambda x: x.detach().cpu().numpy()
         return self.transform(transform_func, interleved=False, apply_to_coords=True)
     
 
@@ -501,8 +501,8 @@ class AneurysmVelocityByTime:
         self.coords.save(path)
         save('velx_by_time', self.velx_by_time)
         save('vely_by_time', self.vely_by_time)
-        if plot_time:
-            fig, _ = plots.quiver(*self.timeframe(plot_time).to_tuple(), scale=400, save_path=f'{path}.png')
+        if plot_time is not None:
+            fig, _ = plots.quiver(*self.timeframe(plot_time).vec_field.to_tuple(), scale=400, save_path=f'{path}.png')
             plots.plt.close(fig)
 
 
