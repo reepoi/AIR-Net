@@ -76,11 +76,8 @@ class Coordinates:
             ``Coordinates``
         """
         lib = self.lib
-        x, y = lib.meshgrid(
-            lib.linspace(lib.min(self.x), lib.max(self.x), grid_density),
-            lib.linspace(lib.min(self.y), lib.max(self.y), grid_density),
-            indexing='xy'
-        )
+        ls = lambda c: lib.linspace(lib.min(c), lib.max(c), grid_density)
+        x, y = lib.meshgrid(ls(self.x), ls(self.y), indexing='xy')
         return Coordinates(x=x, y=y)
     
 
@@ -119,11 +116,7 @@ class VectorField:
             A new VectorField instance with components whose
             shape is flattened.
         """
-        return VectorField(
-            coords=self.coords.ravel(),
-            velx=self.velx.ravel(),
-            vely=self.vely.ravel()
-        )
+        return self.transform(lambda x: x.ravel(), apply_to_coords=True)
     
 
     def to_tuple(self):
@@ -314,13 +307,18 @@ class VelocityByTime:
     velx_by_time: np.ndarray
     vely_by_time: np.ndarray
 
-    def __init__(self, coords: Coordinates, filepath_vel_by_time=None, velx_by_time=None, vely_by_time=None):
+    def __init__(self, coords: Coordinates, filepath_vel_by_time=None, velx_by_time=None, vely_by_time=None,
+                 vec_fields=None):
         self.coords = coords
         self.filepath_vel_by_time = filepath_vel_by_time
         if velx_by_time is not None:
             assert vely_by_time is not None, 'Both vel[x,y]_by_time must not be None'
             self.velx_by_time = velx_by_time
             self.vely_by_time = vely_by_time
+        elif vec_fields is not None:
+            self.coords = vec_fields[0].coords.ravel()
+            self.velx_by_time = np.vstack([vf.velx.ravel() for vf in vec_fields]).T
+            self.vely_by_time = np.vstack([vf.vely.ravel() for vf in vec_fields]).T
         else:
             self.load_data()
     
@@ -482,7 +480,8 @@ class VelocityByTime:
             plots.plt.close(fig)
 
 
-class AneurysmTimeframe(Timeframe):
+
+class TimeframeAneurysm(Timeframe):
     def load_data(self):
         """
         Load and preprocess one timeframe of the 2d aneurysm data set.
@@ -504,10 +503,10 @@ class AneurysmTimeframe(Timeframe):
         )
     
 
-class AneurysmVelocityByTime(VelocityByTime):
+class VelocityByTimeAneurysm(VelocityByTime):
     @property
     def timeframe_class(self):
-        return AneurysmTimeframe
+        return TimeframeAneurysm
 
 
     def load_data(self):
