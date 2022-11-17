@@ -219,10 +219,17 @@ def run_test(**args):
             coords=tf.vec_field.coords,
             filepath_vel_by_time=args['data_dir'] / DataSet.ANEURYSM.value / 'my_vel_by_time.csv',
         )
+
+    if args['interleved'] is None:
+        if (t := args['timeframe']) >= 0:
+            timeframes = [t]
+        else:
+            timesframes = range(vbt.timeframes)
+        for t in timeframes:
+            run_timeframe(vbt.timeframe(t), **args)
+            break
+    else:
         run_velocity_by_time(vbt, **args)
-        # for t in range(vbt.timeframes):
-        #     run_timeframe(vbt.timeframe(t), **args)
-        #     break
 
 
 if __name__ == '__main__':

@@ -164,6 +164,10 @@ def train(max_epochs, matrix_factor_dimensions, masked_matrix, mask,
         The reconstructed matrix produced by the DeepMatrixFactorization model.
     """
     to_report = lambda x: x.detach().cpu().numpy()
+    mask.requires_grad_(False)
+    masked_matrix.requires_grad_(False)
+    mask_nonzeros = mask.nonzero()
+    nonzero_mask = lambda x: x[mask_nonzeros]
 
     model = DeepMatrixFactorization(matrix_factor_dimensions).to(device)
     optimizer = torch.optim.Adam(model.parameters())
@@ -174,7 +178,8 @@ def train(max_epochs, matrix_factor_dimensions, masked_matrix, mask,
 
         # Compute prediction error
         reconstructed_matrix = model(masked_matrix)
-        loss = 0.5 * l2_sqrd_error(reconstructed_matrix * mask, masked_matrix)
+        # loss = 0.5 * l2_sqrd_error(reconstructed_matrix * mask, masked_matrix)
+        loss = norm_mean_abs_error(nonzero_mask(reconstructed_matrix), nonzero_mask(masked_matrix))
 
         # Backpropagation
         optimizer.zero_grad()
