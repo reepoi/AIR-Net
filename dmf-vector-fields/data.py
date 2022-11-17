@@ -28,6 +28,11 @@ class Coordinates:
         return torch if type(self.x) is torch.Tensor else np
     
 
+    @property
+    def components(self):
+        return 'x', 'y'
+
+
     def transform(self, transform_func):
         """
         Applies a transform to x and y.
@@ -41,7 +46,7 @@ class Coordinates:
         -------
             ``Coordinates``
         """
-        return Coordinates(x=transform_func(self.x), y=transform_func(self.y))
+        return self.__class__(*(transform_func(getattr(self, c)) for c in self.components))
 
 
     def ravel(self):
@@ -77,14 +82,23 @@ class Coordinates:
         """
         lib = self.lib
         ls = lambda c: lib.linspace(lib.min(c), lib.max(c), grid_density)
-        x, y = lib.meshgrid(ls(self.x), ls(self.y), indexing='xy')
-        return Coordinates(x=x, y=y)
+        mg = lib.meshgrid(*(ls(getattr(self, c)) for c in self.components), indexing='xy')
+        return self.__class__(*mg)
     
 
     def save(self, path):
         save = lambda name, arr: np.savetxt(f'{path}_{name}.csv', arr, delimiter=',')
-        save('x', self.x)
-        save('y', self.y)
+        for c in self.components:
+            save(c, getattr(self, c))
+
+
+@dataclass(frozen=True)
+class Coordinates3D(Coordinates):
+    z: np.ndarray
+
+    @property
+    def components(self):
+        return 'x', 'y', 'z'
 
 
 @dataclass(frozen=True)

@@ -54,7 +54,7 @@ def get_argparser():
                         help='the number of points on the side of the interpolation grid.')
     parser.add_argument('--timeframe', type=int, default=None,
                         help='the timeframe to use when the vector field is time dependent.')
-    
+
     # VelocityByTime options
     parser.add_argument('--interleved', dest='interleved', action='store_true')
     parser.add_argument('--no-interleved', dest='interleved', action='store_false')
@@ -71,7 +71,7 @@ def num_large_singular_values(matrix, threshold=5e-1):
     ----------
     matrix: numeric
         The matrix to be analyzed.
-    
+
     threshold: scalar, default 5e-1
         The threshold that a singular value must be greater
         than to be counted.
@@ -118,7 +118,7 @@ def run_timeframe(tf, **args):
         print(f'Component: {component}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE (Original): {nmae_against_original:.5e}')
         if last_report:
             print(f'\n*** END {component} ***\n')
-    
+
     training_names = vec_field_component_names()
     def trainer(vel):
         name = next(training_names)
@@ -153,7 +153,7 @@ def run_velocity_by_time(vbt, **args):
     matrix_factor_dimensions = [model.Shape(rows=rows, cols=rows) for _ in range(args['num_factors'] - 1)]
     matrix_factor_dimensions.append(model.Shape(rows=rows, cols=cols))
     print(matrix_factor_dimensions)
-    
+
     mask = model.get_bit_mask((rows, cols), args['mask_rate'])
     mask_numpy = mask.cpu().numpy()
 
