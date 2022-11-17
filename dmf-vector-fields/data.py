@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 import torch
 import scipy.interpolate as interp
 
@@ -66,6 +67,17 @@ class Coordinates:
         return self.transform(lambda x: x.ravel())
     
 
+    def to_tuple(self):
+        """
+        Lists out all the data fields of Coordinates.
+
+        Returns
+        -------
+            A tuple of all the data fields of Coordinates.
+        """
+        return tuple(getattr(self, c) for c in self.components)
+    
+
     def bounding_grid(self, grid_density):
         """
         Build the smallest grid such that the area it encloses
@@ -98,7 +110,7 @@ class Coordinates3D(Coordinates):
 
     @property
     def components(self):
-        return 'x', 'y', 'z'
+        return *super().components, 'z'
 
 
 @dataclass(frozen=True)
@@ -118,6 +130,11 @@ class VectorField:
             The torch or numpy module.
         """
         return self.coords.lib
+    
+
+    @property
+    def components(self):
+        return 'velx', 'vely'
 
 
     def ravel(self):
@@ -141,7 +158,7 @@ class VectorField:
         -------
             A tuple of all the data fields of a VectorField.
         """
-        return self.coords.x, self.coords.y, self.velx, self.vely
+        return *self.coords.to_tuple(), *(getattr(self, c) for c in self.components)
     
 
     def interp(self, grid_density=None, coords=None, **interp_opts):
@@ -167,9 +184,9 @@ class VectorField:
         """
         if coords is None:
             coords = self.coords.bounding_grid(grid_density)
-        new_velx = interp_griddata(self.coords, self.velx, coords, **interp_opts)
-        new_vely = interp_griddata(self.coords, self.vely, coords, **interp_opts)
-        return VectorField(coords=coords, velx=new_velx, vely=new_vely)
+        new_components = (interp_griddata(self.coords, getattr(self, c), coords, **interp_opts)
+                          for c in self.components)
+        return self.__class__(coords, *new_components)
 
 
     def as_completable(self, grid_density):
@@ -200,23 +217,32 @@ class VectorField:
         -------
             A VectorField
         """
-        return VectorField(
-            coords=self.coords.transform(transform_func) if apply_to_coords else self.coords,
-            velx=transform_func(self.velx),
-            vely=transform_func(self.vely)
+        return self.__class__(
+            self.coords.transform(transform_func) if apply_to_coords else self.coords,
+            *(transform_func(getattr(self, c)) for c in self.components)
         )
     
 
     def save(self, path, plot=True):
         save = lambda name, arr: np.savetxt(f'{path}_{name}.csv', arr, delimiter=',')
         self.coords.save(path)
-        save('velx', self.velx)
-        save('vely', self.vely)
+        for c in self.components:
+            save(c, getattr(self, c))
         if plot:
-            fig, _ = plots.quiver(*self.to_tuple(), scale=400, save_path=f'{path}.png')
-            plots.plt.close(fig)
-        
+            fig, ax = plt.subplots()
+            ax.quiver(*self.to_tuple())
+            fig.savefig(f'{path}.png')
+            plt.close(fig)
 
+
+@dataclass(frozen=True)
+class VectorField3D(VectorField):
+    velz: np.ndarray
+
+    @property
+    def components(self):
+        return *super().components, 'velz'
+        
 
 @dataclass
 class Timeframe:
