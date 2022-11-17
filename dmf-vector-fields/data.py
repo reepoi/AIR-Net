@@ -212,7 +212,7 @@ class VectorField:
 
 
 @dataclass
-class AneurysmTimeframe:
+class Timeframe:
     time: int
     filepath: str
     vec_field: VectorField
@@ -220,10 +220,10 @@ class AneurysmTimeframe:
     def __init__(self, time: int, filepath=None, vec_field=None):
         self.time = time
         self.filepath = filepath
-        if filepath is None:
-            assert vec_field is not None, 'This must not be None if filepath is None.'
+        if vec_field is not None:
             self.vec_field = vec_field
         else:
+            assert filepath is not None, 'Need a filepath to load_data'
             self.load_data()
     
 
@@ -240,25 +240,8 @@ class AneurysmTimeframe:
 
 
     def load_data(self):
-        """
-        Load and preprocess one timeframe of the 2d aneurysm data set.
-        Any duplicate spatial coordinates are removed.
-        """
-        data = pd.read_csv(self.filepath)
-        col_idxs, col_names = [0, 1, 3, 4], ['velx', 'vely', 'x', 'y']
-        data = data.rename(columns={data.columns[i]: n for i, n in zip(col_idxs, col_names)})
-        data = data[col_names] # drop extra columns
-        data = data.set_index(['x', 'y']) # set index to (x, y)
-        data = data.groupby(level=data.index.names).first() # remove duplicate (x, y)
-        self.vec_field = VectorField(
-            coords = Coordinates(
-                x=data.index.get_level_values('x').to_numpy(),
-                y=data.index.get_level_values('y').to_numpy()
-            ),
-            velx=data['velx'].to_numpy(),
-            vely=data['vely'].to_numpy()
-        )
-    
+        raise NotImplementedError('This should be overriden.')
+
 
     def as_completable(self, grid_density):
         """
@@ -266,9 +249,9 @@ class AneurysmTimeframe:
 
         Returns
         -------
-            An ``AneurysmTimeframe`` with ``filepath=None``.
+            An ``Timeframe`` with ``filepath=None``.
         """
-        return AneurysmTimeframe(
+        return self.__class__(
             time=self.time,
             filepath=None,
             vec_field=self.vec_field.as_completable(grid_density)
@@ -283,13 +266,13 @@ class AneurysmTimeframe:
             The transform function to apply.
 
         apply_to_coords: bool, False
-            Apply ``transform_func`` to ``AneurysmTimeframe``'s coordinates.
+            Apply ``transform_func`` to ``Timeframe``'s coordinates.
         
         Returns
         -------
-            An ``AneurysmTimeframe`` with ``filepath=None``.
+            An ``Timeframe`` with ``filepath=None``.
         """
-        return AneurysmTimeframe(
+        return self.__class__(
             time=self.time,
             filepath=None,
             vec_field=self.vec_field.transform(transform_func, apply_to_coords=apply_to_coords)
@@ -302,7 +285,7 @@ class AneurysmTimeframe:
         
         Returns
         -------
-            ``AneurysmTimeframe`` whose data are numpy ndarrays.
+            ``Timeframe`` whose data are numpy ndarrays.
         """
         transform_func = lambda x: x.detach().cpu().numpy()
         return self.transform(transform_func, apply_to_coords=True)
@@ -314,7 +297,7 @@ class AneurysmTimeframe:
         
         Returns
         -------
-            ``AneurysmTimeframe`` whose data are torch tensors.
+            ``Timeframe`` whose data are torch tensors.
         """
         transform_func = lambda x: torch.tensor(x).to(device)
         return self.transform(transform_func, apply_to_coords=True)
@@ -325,7 +308,7 @@ class AneurysmTimeframe:
 
 
 @dataclass
-class AneurysmVelocityByTime:
+class VelocityByTime:
     filepath_vel_by_time: str
     coords: Coordinates
     velx_by_time: np.ndarray
@@ -342,18 +325,6 @@ class AneurysmVelocityByTime:
             self.load_data()
     
 
-    def load_data(self):
-        # duplicate point at row 39, 41
-        # From t = 0
-        # x   y   velx      vely
-        # 1.9 0.0 -0.000152 -8.057502e-07
-        data = pd.read_csv(self.filepath_vel_by_time, header=None)
-        # data = data.drop_duplicates() # remove 2 duplicate rows
-        data = data.to_numpy()
-        self.velx_by_time = data[0::2]
-        self.vely_by_time = data[1::2]
-    
-
     @property
     def timeframes(self):
         """
@@ -364,6 +335,11 @@ class AneurysmVelocityByTime:
             int
         """
         return self.velx_by_time.shape[-1]
+    
+
+    @property
+    def timeframe_class(self):
+        return Timeframe
     
 
     @property
@@ -385,13 +361,13 @@ class AneurysmVelocityByTime:
         Parameters
         ----------
         time: int
-            An integer in {0, 1,..., AneurysmVelocityByTime.timeframes - 1}
+            An integer in {0, 1,..., VelocityByTime.timeframes - 1}
         
         Returns
         -------
-            AneurysmTimeframe with ``filepath = None``.
+            ``Timeframe`` with ``filepath = None``.
         """
-        return AneurysmTimeframe(
+        return self.timeframe_class(
             time=time,
             filepath=None,
             vec_field=VectorField(
@@ -415,7 +391,7 @@ class AneurysmVelocityByTime:
         
         Returns
         -------
-            ``AneurysmVelocityByTime``
+            ``VelocityByTime``
         """
         shape = self.velx_by_time.shape
         if interleved:
@@ -440,10 +416,10 @@ class AneurysmVelocityByTime:
             The transformation to apply.
         
         interleved: bool, default True
-            See :func:`AneurysmVelocityByTime.as_completable`.
+            See :func:`VelocityByTime.as_completable`.
 
         apply_to_coords: bool, False
-            Apply ``transform_func`` to ``AneurysmVelocityByTime``'s coordinates.
+            Apply ``transform_func`` to ``VelocityByTime``'s coordinates.
         
         Returns
         -------
@@ -458,13 +434,13 @@ class AneurysmVelocityByTime:
             completable[0::2] = self.velx_by_time
             completable[1::2] = self.vely_by_time
             transformed = transform_func(completable)
-            return AneurysmVelocityByTime(
+            return self.__class__(
                 filepath_vel_by_time=self.filepath_vel_by_time,
                 coords=coords,
                 velx_by_time=transformed[0::2],
                 vely_by_time=transformed[1::2]
             )
-        return AneurysmVelocityByTime(
+        return self.__class__(
             filepath_vel_by_time=self.filepath_vel_by_time,
             coords=coords,
             velx_by_time=transform_func(self.velx_by_time),
@@ -478,7 +454,7 @@ class AneurysmVelocityByTime:
         
         Returns
         -------
-            ``AneurysmVelocityByTime`` whose data are numpy ndarrays.
+            ``VelocityByTime`` whose data are numpy ndarrays.
         """
         transform_func = lambda x: x.detach().cpu().numpy()
         return self.transform(transform_func, interleved=False, apply_to_coords=True)
@@ -490,7 +466,7 @@ class AneurysmVelocityByTime:
         
         Returns
         -------
-            ``AneurysmVelocityByTime`` whose data are torch tensors.
+            ``VelocityByTime`` whose data are torch tensors.
         """
         transform_func = lambda x: torch.tensor(x).to(device)
         return self.transform(transform_func, interleved=False, apply_to_coords=True)
@@ -505,6 +481,45 @@ class AneurysmVelocityByTime:
             fig, _ = plots.quiver(*self.timeframe(plot_time).vec_field.to_tuple(), scale=400, save_path=f'{path}.png')
             plots.plt.close(fig)
 
+
+class AneurysmTimeframe(Timeframe):
+    def load_data(self):
+        """
+        Load and preprocess one timeframe of the 2d aneurysm data set.
+        Any duplicate spatial coordinates are removed.
+        """
+        data = pd.read_csv(self.filepath)
+        col_idxs, col_names = [0, 1, 3, 4], ['velx', 'vely', 'x', 'y']
+        data = data.rename(columns={data.columns[i]: n for i, n in zip(col_idxs, col_names)})
+        data = data[col_names] # drop extra columns
+        data = data.set_index(['x', 'y']) # set index to (x, y)
+        data = data.groupby(level=data.index.names).first() # remove duplicate (x, y)
+        self.vec_field = VectorField(
+            coords = Coordinates(
+                x=data.index.get_level_values('x').to_numpy(),
+                y=data.index.get_level_values('y').to_numpy()
+            ),
+            velx=data['velx'].to_numpy(),
+            vely=data['vely'].to_numpy()
+        )
+    
+
+class AneurysmVelocityByTime(VelocityByTime):
+    @property
+    def timeframe_class(self):
+        return AneurysmTimeframe
+
+
+    def load_data(self):
+        # duplicate point at row 39, 41
+        # From t = 0
+        # x   y   velx      vely
+        # 1.9 0.0 -0.000152 -8.057502e-07
+        data = pd.read_csv(self.filepath_vel_by_time, header=None)
+        # data = data.drop_duplicates() # remove 2 duplicate rows
+        data = data.to_numpy()
+        self.velx_by_time = data[0::2]
+        self.vely_by_time = data[1::2]
 
 
 def interp_griddata(coords: Coordinates, func_values, new_coords: Coordinates, **kwargs):

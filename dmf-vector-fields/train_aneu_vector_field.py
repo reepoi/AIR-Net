@@ -55,8 +55,9 @@ def get_argparser():
                         help='the timeframe to use when the vector field is time dependent.')
     
     # VelocityByTime options
-    parser.add_argument('--interleved', type=bool, default=None,
-                        help='interleve the velx and vely data for each point into a single matrix by rows.')
+    parser.add_argument('--interleved', dest='interleved', action='store_true')
+    parser.add_argument('--no-interleved', dest='interleved', action='store_false')
+    parser.set_defaults(interleved=None)
     return parser
 
 
@@ -158,7 +159,7 @@ def run_velocity_by_time(vbt, **args):
 
     def report(reconstructed_matrix, epoch, loss, last_report: bool, component):
         if interleved:
-            vbt_reported = data.AneurysmVelocityByTime(
+            vbt_reported = vbt.__class__(
                 coords=vbt.coords,
                 velx_by_time=reconstructed_matrix[0::2],
                 vely_by_time=reconstructed_matrix[1::2]
@@ -172,23 +173,6 @@ def run_velocity_by_time(vbt, **args):
         if last_report:
             print(f'\n*** END {"all" if interleved else component} ***\n')
 
-    # def report(reconstructed_matrix, epoch, loss, last_report: bool, component):
-    #     tf = vbt.timeframe(report_time)
-    #     if interleved:
-    #         vf = data.VectorField(
-    #             coords=tf.vec_field.coords,
-    #             velx=reconstructed_matrix[0::2, report_time],
-    #             vely=reconstructed_matrix[1::2, report_time]
-    #         )
-    #         nmae_against_original_velx = model.norm_mean_abs_error(vf.velx, tf.vec_field.velx, lib=np)
-    #         nmae_against_original_vely = model.norm_mean_abs_error(vf.vely, tf.vec_field.vely, lib=np)
-    #         print(f'Component: all, Epoch: {epoch}, Loss: {loss:.5e}, NMAE_velx (Original): {nmae_against_original_velx:.5e}, NMAE_vely (Original): {nmae_against_original_vely:.5e}')
-    #     else:
-    #         nmae_against_original = model.norm_mean_abs_error(reconstructed_matrix[:, report_time], getattr(tf.vec_field, component), lib=np)
-    #         print(f'Component: {component}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE (Original): {nmae_against_original:.5e}')
-    #     if last_report:
-    #         print(f'\n*** END {"all" if interleved else component} ***\n')
-    
     training_names = vel_by_time_field_component_names()
     def trainer(vel):
         name = next(training_names)
