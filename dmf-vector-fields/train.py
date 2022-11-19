@@ -149,6 +149,8 @@ def run_velocity_by_time(vbt, **args):
     interleved = args['interleved']
     save_dir = lambda p: f'{args["save_dir"]}/{p}'
 
+    vbt.save(save_dir('original'), plot_time=report_time)
+
     rows, cols = vbt.shape_as_completable(interleved=interleved)
     matrix_factor_dimensions = [model.Shape(rows=rows, cols=rows) for _ in range(args['num_factors'] - 1)]
     matrix_factor_dimensions.append(model.Shape(rows=rows, cols=cols))

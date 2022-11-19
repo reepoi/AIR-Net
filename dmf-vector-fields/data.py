@@ -347,18 +347,17 @@ class VelocityByTime:
     velx_by_time: np.ndarray
     vely_by_time: np.ndarray
 
-    def __init__(self, coords: Coordinates, filepath_vel_by_time=None, velx_by_time=None, vely_by_time=None,
-                 vec_fields=None):
+    def __init__(self, coords: Coordinates, filepath_vel_by_time=None, vec_fields=None, **vel_by_time_args):
         self.coords = coords
         self.filepath_vel_by_time = filepath_vel_by_time
-        if velx_by_time is not None:
-            assert vely_by_time is not None, 'Both vel[x,y]_by_time must not be None'
-            self.velx_by_time = velx_by_time
-            self.vely_by_time = vely_by_time
+        if all(c in vel_by_time_args for c in self.components):
+            for c in self.components:
+                setattr(self, c, vel_by_time_args[c])
         elif vec_fields is not None:
+            assert len(self.components) == len(vec_fields[0].components), 'Mixed dimensions.'
             self.coords = vec_fields[0].coords.ravel()
-            self.velx_by_time = np.vstack([vf.velx.ravel() for vf in vec_fields]).T
-            self.vely_by_time = np.vstack([vf.vely.ravel() for vf in vec_fields]).T
+            for c_vbt, c_vf in zip(self.components, vec_fields[0].components):
+                setattr(self, c_vbt, np.vstack([getattr(vf, c_vf).ravel() for vf in vec_fields]).T)
         else:
             self.load_data()
     
@@ -378,6 +377,11 @@ class VelocityByTime:
     @property
     def timeframe_class(self):
         return Timeframe
+
+
+    @property
+    def vec_field_class(self):
+        return VectorField
     
 
     @property
@@ -390,6 +394,15 @@ class VelocityByTime:
             The torch or numpy module.
         """
         return self.coords.lib
+    
+
+    @property
+    def components(self):
+        return 'velx_by_time', 'vely_by_time'
+    
+
+    def load_data(self):
+        raise NotImplementedError('This should be overriden.')
     
 
     def timeframe(self, time):
@@ -408,10 +421,9 @@ class VelocityByTime:
         return self.timeframe_class(
             time=time,
             filepath=None,
-            vec_field=VectorField(
-                coords=self.coords,
-                velx=self.velx_by_time[:, time],
-                vely=self.vely_by_time[:, time]
+            vec_field=self.vec_field_class(
+                self.coords,
+                *(getattr(self, c)[:, time] for c in self.components)
             )
         )
     
@@ -433,7 +445,7 @@ class VelocityByTime:
         """
         shape = self.velx_by_time.shape
         if interleved:
-            shape = (shape[0] * 2, shape[1])
+            shape = (shape[0] * len(self.components), shape[1])
         return shape
         # if interleved:
         #     num_points = self.velx_by_time.shape[0]
@@ -442,6 +454,30 @@ class VelocityByTime:
         #     matrix[1::2] = self.vely_by_time
         #     return matrix
         # return self
+    
+
+    def completable_matrices(self, interleved=True):
+        """
+        Returns the matrix or matrices that are completable.
+
+        Parameters
+        ----------
+        interleved: bool, default True
+            See :func:`VelocityByTime.shape_as_completable`.
+
+        Returns
+        -------
+            np.ndarray
+        """
+        if interleved:
+            completable = self.lib.zeros(self.shape_as_completable(interleved=interleved))
+            if self.lib.__name__ == 'torch':
+                completable = completable.to(device)
+            num_components = len(self.components)
+            for i, c in enumerate(self.components):
+                completable[i::num_components] = getattr(self, c)
+            return completable
+        return tuple(getattr(self, c) for c in self.components)
 
 
     def transform(self, transform_func, interleved=True, apply_to_coords=False):
@@ -454,35 +490,33 @@ class VelocityByTime:
             The transformation to apply.
         
         interleved: bool, default True
-            See :func:`VelocityByTime.as_completable`.
+            See :func:`VelocityByTime.shape_as_completable`.
 
         apply_to_coords: bool, False
             Apply ``transform_func`` to ``VelocityByTime``'s coordinates.
         
         Returns
         -------
-            ``AneursymVelocityByTime``
+            ``VelocityByTime``
         """
         coords = self.coords.transform(transform_func) if apply_to_coords else self.coords
         if interleved:
-            num_points = self.velx_by_time.shape[0]
             completable = self.lib.zeros(self.shape_as_completable(interleved=interleved))
             if self.lib.__name__ == 'torch':
                 completable = completable.to(device)
-            completable[0::2] = self.velx_by_time
-            completable[1::2] = self.vely_by_time
+            num_components = len(self.components)
+            for i, c in enumerate(self.components):
+                completable[i::num_components] = getattr(self, c)
             transformed = transform_func(completable)
             return self.__class__(
                 filepath_vel_by_time=self.filepath_vel_by_time,
                 coords=coords,
-                velx_by_time=transformed[0::2],
-                vely_by_time=transformed[1::2]
+                **{c: transformed[i::num_components] for i in range(num_components)}
             )
         return self.__class__(
             filepath_vel_by_time=self.filepath_vel_by_time,
             coords=coords,
-            velx_by_time=transform_func(self.velx_by_time),
-            vely_by_time=transform_func(self.vely_by_time)
+            **{c: transform_func(getattr(self, c)) for c in self.components}
         )
     
 
@@ -513,12 +547,24 @@ class VelocityByTime:
     def save(self, path, plot_time=None):
         save = lambda name, arr: np.savetxt(f'{path}_{name}.csv', arr, delimiter=',')
         self.coords.save(path)
-        save('velx_by_time', self.velx_by_time)
-        save('vely_by_time', self.vely_by_time)
+        for c in self.components:
+            save(c, getattr(self, c))
         if plot_time is not None:
-            fig, _ = plots.quiver(*self.timeframe(plot_time).vec_field.to_tuple(), scale=400, save_path=f'{path}.png')
-            plots.plt.close(fig)
+            fig, ax = plt.subplots()
+            ax.quiver(*self.timeframe(plot_time).vec_field.to_tuple())
+            fig.savefig(f'{path}.png')
+            plt.close(fig)
 
+
+class VelocityByTime3D(VelocityByTime):
+    @property
+    def components(self):
+        return *super().components, 'velz_by_time'
+    
+
+    @property
+    def vec_field_class(self):
+        return VectorField3D
 
 
 class TimeframeAneurysm(Timeframe):
