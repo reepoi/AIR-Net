@@ -26,6 +26,7 @@ VectorField = namedtuple('VectorField', ['coords', 'velx', 'vely'])
 class DataSet(enum.Enum):
     ANEURYSM = 'aneurysm'
     FUNC1 = 'func1'
+    FUNC2 = 'func2'
 
 
 def get_argparser():
@@ -84,18 +85,6 @@ def num_large_singular_values(matrix, threshold=5e-1):
     return np.sum(np.where(s > threshold, 1, 0))
 
 
-def vec_field_component_names():
-    names = ['velx', 'vely']
-    for n in names:
-        yield n
-
-
-def vel_by_time_field_component_names():
-    names = ['velx_by_time', 'vely_by_time']
-    for n in names:
-        yield n
-
-
 def run_timeframe(tf, **args):
     save_dir_timeframe = lambda p: f'{args["save_dir"]}/{p}.{tf.time}'
 
@@ -119,7 +108,7 @@ def run_timeframe(tf, **args):
         if last_report:
             print(f'\n*** END {component} ***\n')
 
-    training_names = vec_field_component_names()
+    training_names = (c for c in tf.components)
     def trainer(vel):
         name = next(training_names)
         return model.train(
@@ -164,21 +153,20 @@ def run_velocity_by_time(vbt, **args):
 
     def report(reconstructed_matrix, epoch, loss, last_report: bool, component):
         if interleved:
+            num_components = len(vbt.components)
             vbt_reported = vbt.__class__(
                 coords=vbt.coords,
-                velx_by_time=reconstructed_matrix[0::2],
-                vely_by_time=reconstructed_matrix[1::2]
+                **{c: transformed[i::num_components] for i, c in enumerate(self.components)}
             )
-            nmae_against_original_velx = model.norm_mean_abs_error(vbt.velx_by_time, vbt_reported.velx_by_time, lib=np)
-            nmae_against_original_vely = model.norm_mean_abs_error(vbt.vely_by_time, vbt_reported.vely_by_time, lib=np)
-            print(f'Component: all, Epoch: {epoch}, Loss: {loss:.5e}, NMAE_velx (Original): {nmae_against_original_velx:.5e}, NMAE_vely (Original): {nmae_against_original_vely:.5e}')
+            nmaes = {c: model.norm_mean_abs_error(getattr(vbt, c), getattr(vbt_reported, c), lib=np) for c in self.components}
+            print(f'Component: all, Epoch: {epoch}, Loss: {loss:.5e},', *(f'NMAE_{c} (Original): {nmae}' for c, nmae in nmaes))
         else:
             nmae_against_original = model.norm_mean_abs_error(reconstructed_matrix, getattr(vbt, component), lib=np)
             print(f'Component: {component}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE (Original): {nmae_against_original:.5e}')
         if last_report:
             print(f'\n*** END {"all" if interleved else component} ***\n')
 
-    training_names = vel_by_time_field_component_names()
+    training_names = (c for c in vbt.components)
     def trainer(vel):
         name = next(training_names)
         return model.train(
@@ -209,13 +197,14 @@ def run_test(**args):
             filepath_vel_by_time=args['data_dir'] / DataSet.ANEURYSM.value / 'my_vel_by_time.csv',
         )
     elif ds is DataSet.FUNC1:
-        func1 = (lambda xx, yy: np.sin(2 * xx + 2 * yy), lambda xx, yy: np.cos(2 * xx - 2 * yy))
-        ts = np.linspace(-2, 2, args['grid_density'])
-        xx, yy = np.meshgrid(ts, ts)
-        coords = data.Coordinates(x=xx, y=yy)
-        vec_field = data.VectorField(coords=coords, velx=func1[0](xx, yy), vely=func1[1](xx, yy))
-        tf = data.Timeframe(time=0, vec_field=vec_field)
-        vbt = data.VelocityByTime(coords=coords, vec_fields=[vec_field])
+        func_x = lambda t, x, y: np.sin(2 * x + 2 * y)
+        func_y = lambda t, x, y: np.cos(2 * x - 2 * y)
+        vbt = data.velocity_by_time_function(func_x, func_y, (-2, 2), args['grid_density'])
+    elif ds is DataSet.FUNC2:
+        func_x = lambda t, x, y, z: np.sin(2 * x + 2 * y)
+        func_y = lambda t, x, y, z: np.cos(2 * x - 2 * y)
+        func_z = lambda t, x, y, z: np.cos(2 * x - 2 * z)
+        vbt = data.velocity_by_time_function_3d(func_x, func_y, func_z, (-2, 2), args['grid_density'])
 
     if args['interleved'] is None:
         if (t := args['timeframe']) >= 0:

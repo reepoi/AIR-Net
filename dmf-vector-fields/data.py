@@ -242,6 +242,15 @@ class VectorField3D(VectorField):
     @property
     def components(self):
         return *super().components, 'velz'
+    
+
+    def save(self, path, plot=True):
+        if plot:
+            fig, ax = plt.subplots()
+            ax = fig.add_subplot(projection='3d')
+            ax.quiver(*self.to_tuple())
+            fig.savefig(f'{path}.png')
+            plt.close(fig)
         
 
 @dataclass
@@ -347,7 +356,7 @@ class VelocityByTime:
     velx_by_time: np.ndarray
     vely_by_time: np.ndarray
 
-    def __init__(self, coords: Coordinates, filepath_vel_by_time=None, vec_fields=None, **vel_by_time_args):
+    def __init__(self, coords=None, filepath_vel_by_time=None, vec_fields=None, **vel_by_time_args):
         self.coords = coords
         self.filepath_vel_by_time = filepath_vel_by_time
         if all(c in vel_by_time_args for c in self.components):
@@ -447,14 +456,7 @@ class VelocityByTime:
         if interleved:
             shape = (shape[0] * len(self.components), shape[1])
         return shape
-        # if interleved:
-        #     num_points = self.velx_by_time.shape[0]
-        #     matrix = self.lib.zeros((num_points * 2, self.timeframes))
-        #     matrix[0::2] = self.velx_by_time
-        #     matrix[1::2] = self.vely_by_time
-        #     return matrix
-        # return self
-    
+
 
     def completable_matrices(self, interleved=True):
         """
@@ -511,7 +513,7 @@ class VelocityByTime:
             return self.__class__(
                 filepath_vel_by_time=self.filepath_vel_by_time,
                 coords=coords,
-                **{c: transformed[i::num_components] for i in range(num_components)}
+                **{c: transformed[i::num_components] for i, c in enumerate(self.components)}
             )
         return self.__class__(
             filepath_vel_by_time=self.filepath_vel_by_time,
@@ -557,6 +559,8 @@ class VelocityByTime:
 
 
 class VelocityByTime3D(VelocityByTime):
+    velz_by_time: np.ndarray
+
     @property
     def components(self):
         return *super().components, 'velz_by_time'
@@ -565,6 +569,88 @@ class VelocityByTime3D(VelocityByTime):
     @property
     def vec_field_class(self):
         return VectorField3D
+
+
+def velocity_by_time_function(func_x, func_y, grid_bounds, grid_density, times=None):
+    """
+    Helper function to create a ``VelocityByTime`` whose components
+    are defined by known functions.
+
+    Parameters
+    ----------
+    func_x: funcition(t, x, y)
+        The function defining the x-component of a vector field. It
+        must be vectorized with respect to its spatial coordinates (x, y).
+
+    func_y: funcition(t, x, y)
+        The function defining the y-component of a vector field. It
+        must be vectorized with respect to its spatial coordinates (x, y).
+    
+    grid_bounds: tuple(float, float)
+        The bounds of the grid to evaluate the vector field functions on.
+        The grid is square.
+    
+    grid_density: int
+        The number of points the grid has along any edge.
+    
+    times: list(float), default [0]
+        A list of times to evaluate the vector field functions at.
+    
+    Returns
+    -------
+        ``VelocityByTime``
+    """
+    if times is None:
+        times = [0]
+    b_x, b_y = grid_bounds
+    grid_line = np.linspace(b_x, b_y, grid_density)
+    mesh = np.meshgrid(grid_line, grid_line)
+    coords = Coordinates(*mesh).ravel()
+    vec_fields = [VectorField(coords=coords, velx=func_x(t, *mesh), vely=func_y(t, *mesh)) for t in times]
+    return VelocityByTime(coords=coords, vec_fields=vec_fields)
+
+
+def velocity_by_time_function_3d(func_x, func_y, func_z, grid_bounds, grid_density, times=None):
+    """
+    Helper function to create a ``VelocityByTime3D`` whose components
+    are defined by known functions.
+
+    Parameters
+    ----------
+    func_x: funcition(t, x, y, z)
+        The function defining the x-component of a vector field. It
+        must be vectorized with respect to its spatial coordinates (x, y, z).
+
+    func_y: funcition(t, x, y, z)
+        The function defining the y-component of a vector field. It
+        must be vectorized with respect to its spatial coordinates (x, y, z).
+
+    func_z: funcition(t, x, y, z)
+        The function defining the z-component of a vector field. It
+        must be vectorized with respect to its spatial coordinates (x, y, z).
+    
+    grid_bounds: tuple(float, float)
+        The bounds of the grid to evaluate the vector field functions on.
+        The grid is a cube.
+    
+    grid_density: int
+        The number of points the grid has along any edge.
+    
+    times: list(float), default [0]
+        A list of times to evaluate the vector field functions at.
+    
+    Returns
+    -------
+        ``VelocityByTime3D``
+    """
+    if times is None:
+        times = [0]
+    b_x, b_y = grid_bounds
+    grid_line = np.linspace(b_x, b_y, grid_density)
+    mesh = np.meshgrid(grid_line, grid_line, grid_line)
+    coords = Coordinates3D(*mesh)
+    vec_fields = [VectorField3D(coords=coords, velx=func_x(t, *mesh), vely=func_y(t, *mesh), velz=func_z(t, *mesh)) for t in times]
+    return VelocityByTime3D(coords=coords, vec_fields=vec_fields)
 
 
 class TimeframeAneurysm(Timeframe):
