@@ -108,7 +108,7 @@ def run_timeframe(tf, **args):
         if last_report:
             print(f'\n*** END {component} ***\n')
 
-    training_names = (c for c in tf.components)
+    training_names = (c for c in tf.vec_field.components)
     def trainer(vel):
         name = next(training_names)
         return model.train(
