@@ -93,6 +93,22 @@ def num_large_singular_values(matrix, threshold=5e-1):
 
 
 def run_timeframe_ist(tf, **args):
+    def report(reconstructed_matrix, epoch, loss, last_report: bool, component):
+        vel = data.interp_griddata(tf_grid.vec_field.coords, reconstructed_matrix, tf.vec_field.coords)
+        nmae_against_original = model.norm_mean_abs_error(vel, getattr(tf.vec_field, component), lib=np)
+        print(f'Component: {component}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE (Original): {nmae_against_original:.5e}')
+        if last_report:
+            print(f'\n*** END {component} ***\n')
+
+    def trainer(vel):
+        name = next(training_names)
+        return model.iterated_soft_thresholding(
+            masked_matrix=vel,
+            mask=mask_numpy,
+            report_frequency=args['report_frequency'],
+            report=lambda *args: report(*args, component=name)
+        )
+
     save_dir_timeframe = lambda p: f'{args["save_dir"]}/{p}.{tf.time}'
 
     tf.vec_field.save(save_dir_timeframe('original'))
@@ -105,25 +121,7 @@ def run_timeframe_ist(tf, **args):
     mask = model.get_bit_mask((rows, cols), args['mask_rate'])
     mask_numpy = mask.cpu().numpy()
 
-    def meets_stop_criteria(epoch, loss):
-        return loss < args['desired_loss']
-
-    def report(reconstructed_matrix, epoch, loss, last_report: bool, component):
-        vel = data.interp_griddata(tf_grid.vec_field.coords, reconstructed_matrix, tf.vec_field.coords)
-        nmae_against_original = model.norm_mean_abs_error(vel, getattr(tf.vec_field, component), lib=np)
-        print(f'Component: {component}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE (Original): {nmae_against_original:.5e}')
-        if last_report:
-            print(f'\n*** END {component} ***\n')
-
     training_names = (c for c in tf.vec_field.components)
-    def trainer(vel):
-        name = next(training_names)
-        return model.iterated_soft_thresholding(
-            masked_matrix=vel,
-            mask=mask_numpy,
-            report_frequency=args['report_frequency'],
-            report=lambda *args: report(*args, component=name)
-        )
 
     tf_grid_masked = tf_grid.transform(lambda vel: vel * mask_numpy)
     tf_grid_masked.vec_field.save(save_dir_timeframe('masked_interpolated'))
@@ -135,18 +133,6 @@ def run_timeframe_ist(tf, **args):
 
 
 def run_timeframe(tf, **args):
-    save_dir_timeframe = lambda p: f'{args["save_dir"]}/{p}.{tf.time}'
-
-    tf.vec_field.save(save_dir_timeframe('original'))
-
-    tf_grid = tf.as_completable(grid_density=args['grid_density'])
-    tf_grid.vec_field.save(save_dir_timeframe('interpolated'))
-
-    rows, cols = tf_grid.vec_field.velx.shape
-    matrix_factor_dimensions = [model.Shape(rows=rows, cols=rows) for _ in range(args['num_factors'] - 1)]
-    matrix_factor_dimensions.append(model.Shape(rows=rows, cols=cols))
-    print(matrix_factor_dimensions)
-
     def meets_stop_criteria(epoch, loss):
         return loss < args['desired_loss']
 
@@ -157,7 +143,6 @@ def run_timeframe(tf, **args):
         if last_report:
             print(f'\n*** END {component} ***\n')
 
-    training_names = (c for c in tf.vec_field.components)
     def trainer(vel):
         name = next(training_names)
         return model.train(
@@ -170,8 +155,22 @@ def run_timeframe(tf, **args):
             report=lambda *args: report(*args, component=name)
         )
 
+    save_dir_timeframe = lambda p: f'{args["save_dir"]}/{p}.{tf.time}'
+
+    tf.vec_field.save(save_dir_timeframe('original'))
+
+    tf_grid = tf.as_completable(grid_density=args['grid_density'])
+    tf_grid.vec_field.save(save_dir_timeframe('interpolated'))
+
+    rows, cols = tf_grid.vec_field.velx.shape
+    matrix_factor_dimensions = [model.Shape(rows=rows, cols=rows) for _ in range(args['num_factors'] - 1)]
+    matrix_factor_dimensions.append(model.Shape(rows=rows, cols=cols))
+    print(matrix_factor_dimensions)
+
     mask = model.get_bit_mask((rows, cols), args['mask_rate'])
     mask_numpy = mask.cpu().numpy()
+
+    training_names = (c for c in tf.vec_field.components)
 
     tf_grid_masked = tf_grid.transform(lambda vel: vel * mask_numpy)
     tf_grid_masked.vec_field.save(save_dir_timeframe('masked_interpolated'))
@@ -183,20 +182,6 @@ def run_timeframe(tf, **args):
 
 
 def run_velocity_by_time(vbt, **args):
-    report_time = 0
-    interleved = args['interleved']
-    save_dir = lambda p: f'{args["save_dir"]}/{p}'
-
-    vbt.save(save_dir('original'), plot_time=report_time)
-
-    rows, cols = vbt.shape_as_completable(interleved=interleved)
-    matrix_factor_dimensions = [model.Shape(rows=rows, cols=rows) for _ in range(args['num_factors'] - 1)]
-    matrix_factor_dimensions.append(model.Shape(rows=rows, cols=cols))
-    print(matrix_factor_dimensions)
-
-    mask = model.get_bit_mask((rows, cols), args['mask_rate'])
-    mask_numpy = mask.cpu().numpy()
-
     def meets_stop_criteria(epoch, loss):
         return loss < args['desired_loss']
 
@@ -215,7 +200,6 @@ def run_velocity_by_time(vbt, **args):
         if last_report:
             print(f'\n*** END {"all" if interleved else component} ***\n')
 
-    training_names = (c for c in vbt.components)
     def trainer(vel):
         name = next(training_names)
         return model.train(
@@ -227,6 +211,22 @@ def run_velocity_by_time(vbt, **args):
             report_frequency=args['report_frequency'],
             report=lambda *args: report(*args, component=name)
         )
+
+    report_time = 0
+    interleved = args['interleved']
+    save_dir = lambda p: f'{args["save_dir"]}/{p}'
+
+    vbt.save(save_dir('original'), plot_time=report_time)
+
+    rows, cols = vbt.shape_as_completable(interleved=interleved)
+    matrix_factor_dimensions = [model.Shape(rows=rows, cols=rows) for _ in range(args['num_factors'] - 1)]
+    matrix_factor_dimensions.append(model.Shape(rows=rows, cols=cols))
+    print(matrix_factor_dimensions)
+
+    mask = model.get_bit_mask((rows, cols), args['mask_rate'])
+    mask_numpy = mask.cpu().numpy()
+
+    training_names = (c for c in vbt.components)
 
     vbt_masked = vbt.transform(lambda vel: vel * mask_numpy, interleved=interleved)
     vbt_masked.save(save_dir('masked'), plot_time=report_time)
@@ -261,7 +261,8 @@ def run_test(**args):
         else:
             timesframes = range(vbt.timeframes)
         for t in timeframes:
-            run_timeframe_ist(vbt.timeframe(t), **args)
+            run_timeframe(vbt.timeframe(t), **args)
+            # run_timeframe_ist(vbt.timeframe(t), **args)
             break
     else:
         run_velocity_by_time(vbt, **args)

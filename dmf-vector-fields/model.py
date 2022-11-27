@@ -203,6 +203,48 @@ def train(max_epochs, matrix_factor_dimensions, masked_matrix, mask,
 def iterated_soft_thresholding(masked_matrix, mask, err=1e-6, normfac=1, insweep=200, tol=1e-4, decfac=0.9,
                                report_frequency=100,
                                report=lambda reconstructed_matrix, epoch, loss, last_report: None):
+    """
+    Matrix Completion via Iterated Soft Thresholding
+
+    .. math::
+
+       \min_X ||X||_* \text{ subject to } \frac{1}{2}||(X - \tilde{X}) \odot M||_F^2 < \varepsilon
+
+    min nuclear-norm(X) subject to ||y - M(X)||_2<err
+
+    Parameters
+    ----------
+    masked_matrix: numeric
+        The masked ground-truth matrix to be reconstructed.
+    
+    mask: numeric
+        The bit-mask matrix that was used to create ``masked_matrix``.
+    
+    err: positive scalar
+        :math:`\varepsilon` in the constraint of the minization problem.
+    
+    normfac: scalar, default 1
+        The largest eigenvalue of the matrix ``np.matmul(mask.T, mask)``.
+        Since ``mask`` is a bit-mask matrix, it should be that ``normfac = 1``.
+
+    insweep: int, default 200
+        The maximum number of internal sweeps for solving :math:`||(X - \tilde{X}) \odot M||_F^2 + \lambda||X||_*`
+    
+    tol: scalar
+        The tolerance for (???).
+    
+    decfac: scalar
+        The decrease factor for cooling :math:`\lambda` (???).
+
+    Returns
+    -------
+        The reconstructed matrix produced by the algorithm.
+    
+    References
+    ----------
+    .. [1] Majumdar, A.: Singular Value Shrinkage. In: Compressed sensing for engineers.
+       pp. 110–119. CRC Press/Taylor &amp; Francis, Boca Raton, FL (2019). 
+    """
     reconstructed_matrix = np.zeros(masked_matrix.shape)
     alpha = 1.1 * normfac
     # lam = lambda
@@ -233,7 +275,7 @@ def iterated_soft_thresholding(masked_matrix, mask, err=1e-6, normfac=1, insweep
 
             e += 1
             
-        if np.linalg.norm(masked_matrix - mask * reconstructed_matrix, ord='fro') < err:
+        if np.linalg.norm(masked_matrix - mask * reconstructed_matrix, ord='fro') / 2 < err:
             break
 
         lam *= decfac
