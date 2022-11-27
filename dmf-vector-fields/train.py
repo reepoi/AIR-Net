@@ -29,6 +29,11 @@ class DataSet(enum.Enum):
     FUNC2 = 'func2'
 
 
+class Algorithm(enum.Enum):
+    DMF = 'dmf'
+    IST = 'ist'
+
+
 def get_argparser():
     parser = argparse.ArgumentParser(description='Run deep matrix factorization with 2d aneurysm.')
     parser.add_argument('--max-epochs', type=int, default=20_000,
@@ -39,10 +44,12 @@ def get_argparser():
                         help='number of matrix factors.')
     parser.add_argument('--mask-rate', type=float, default=None,
                         help='the expected precentage of matrix entries to be set to zero.')
+    parser.add_argument('--algorithm', type=Algorithm,
+                        help='the algorithm to use for matrix completion.')
     parser.add_argument('--data-set', type=DataSet,
                         help='the data set in the data dir to use.')
     parser.add_argument('--data-dir', type=Path,
-                        help='path to the matrix completion test data.')
+                        help='path to the matrix completion data.')
     parser.add_argument('--save-dir', type=str,
                         help='where to save the figures.')
     parser.add_argument('--run-matrix-config', type=bool, default=False,
@@ -83,6 +90,48 @@ def num_large_singular_values(matrix, threshold=5e-1):
     """
     u, s, vh = np.linalg.svd(matrix, full_matrices=False)
     return np.sum(np.where(s > threshold, 1, 0))
+
+
+def run_timeframe_ist(tf, **args):
+    save_dir_timeframe = lambda p: f'{args["save_dir"]}/{p}.{tf.time}'
+
+    tf.vec_field.save(save_dir_timeframe('original'))
+
+    tf_grid = tf.as_completable(grid_density=args['grid_density'])
+    tf_grid.vec_field.save(save_dir_timeframe('interpolated'))
+
+    rows, cols = tf_grid.vec_field.velx.shape
+
+    mask = model.get_bit_mask((rows, cols), args['mask_rate'])
+    mask_numpy = mask.cpu().numpy()
+
+    def meets_stop_criteria(epoch, loss):
+        return loss < args['desired_loss']
+
+    def report(reconstructed_matrix, epoch, loss, last_report: bool, component):
+        vel = data.interp_griddata(tf_grid.vec_field.coords, reconstructed_matrix, tf.vec_field.coords)
+        nmae_against_original = model.norm_mean_abs_error(vel, getattr(tf.vec_field, component), lib=np)
+        print(f'Component: {component}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE (Original): {nmae_against_original:.5e}')
+        if last_report:
+            print(f'\n*** END {component} ***\n')
+
+    training_names = (c for c in tf.vec_field.components)
+    def trainer(vel):
+        name = next(training_names)
+        return model.iterated_soft_thresholding(
+            masked_matrix=vel,
+            mask=mask_numpy,
+            report_frequency=args['report_frequency'],
+            report=lambda *args: report(*args, component=name)
+        )
+
+    tf_grid_masked = tf_grid.transform(lambda vel: vel * mask_numpy)
+    tf_grid_masked.vec_field.save(save_dir_timeframe('masked_interpolated'))
+
+    print(f'Mask Rate: {args["mask_rate"]}')
+    tf_grid_masked_rec = tf_grid_masked.transform(trainer)
+    tf_grid_masked_rec.vec_field.save(save_dir_timeframe('reconstructed_interpolated'))
+    tf_grid_masked_rec.vec_field.interp(coords=tf.vec_field.coords).save(save_dir_timeframe('reconstructed'))
 
 
 def run_timeframe(tf, **args):
@@ -205,14 +254,14 @@ def run_test(**args):
         func_y = lambda t, x, y, z: np.cos(2 * x - 2 * y)
         func_z = lambda t, x, y, z: np.cos(2 * x - 2 * z)
         vbt = data.velocity_by_time_function_3d(func_x, func_y, func_z, (-2, 2), args['grid_density'])
-
+    
     if args['interleved'] is None:
         if (t := args['timeframe']) >= 0:
             timeframes = [t]
         else:
             timesframes = range(vbt.timeframes)
         for t in timeframes:
-            run_timeframe(vbt.timeframe(t), **args)
+            run_timeframe_ist(vbt.timeframe(t), **args)
             break
     else:
         run_velocity_by_time(vbt, **args)

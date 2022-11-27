@@ -200,17 +200,16 @@ def train(max_epochs, matrix_factor_dimensions, masked_matrix, mask,
     return reconstructed_matrix
 
 
-def iterated_soft_thresholding(matrix, mask, err=1e-6, normfac=1, insweep=200, tol=1e-4, decfac=0.9,
+def iterated_soft_thresholding(masked_matrix, mask, err=1e-6, normfac=1, insweep=200, tol=1e-4, decfac=0.9,
                                report_frequency=100,
                                report=lambda reconstructed_matrix, epoch, loss, last_report: None):
-    reconstructed_matrix = np.zeros(matrix.shape)
+    reconstructed_matrix = np.zeros(masked_matrix.shape)
     alpha = 1.1 * normfac
     # lam = lambda
-    masked = matrix * mask # y
-    lam_init = decfac * np.max(np.abs(masked)) # interpretation of matlab code
+    lam_init = decfac * np.max(np.abs(mask.T * masked_matrix))
     lam = np.copy(lam_init)
 
-    loss_func = lambda RCm: np.linalg.norm(masked - mask * RCm, ord=2) + lam * np.linalg.norm(RCm.ravel(), ord=1)
+    loss_func = lambda RCm: np.linalg.norm(masked_matrix - mask * RCm, ord='fro') + lam * np.linalg.norm(RCm.ravel(), ord=1)
 
     loss = loss_func(reconstructed_matrix)
 
@@ -218,7 +217,7 @@ def iterated_soft_thresholding(matrix, mask, err=1e-6, normfac=1, insweep=200, t
     while lam > lam_init * tol:
         for _ in range(insweep):
             loss_prev = loss
-            reconstructed_matrix += (masked - mask * reconstructed_matrix) / alpha
+            reconstructed_matrix += mask.T * (masked_matrix - mask * reconstructed_matrix) / alpha
 
             U, S, Vh = np.linalg.svd(reconstructed_matrix, full_matrices=False)
             S = soft_threshold(S, lam / (2 * alpha))
@@ -234,11 +233,10 @@ def iterated_soft_thresholding(matrix, mask, err=1e-6, normfac=1, insweep=200, t
 
             e += 1
             
-        if np.linalg.norm(masked - mask * reconstructed_matrix, ord=2) < err:
+        if np.linalg.norm(masked_matrix - mask * reconstructed_matrix, ord='fro') < err:
             break
 
         lam *= decfac
-        print(lam, lam_init * tol)
 
     report(reconstructed_matrix, e, loss, True)
 
