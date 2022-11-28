@@ -245,13 +245,22 @@ def iterated_soft_thresholding(masked_matrix, mask, err=1e-6, normfac=1, insweep
     .. [1] Majumdar, A.: Singular Value Shrinkage. In: Compressed sensing for engineers.
        pp. 110–119. CRC Press/Taylor &amp; Francis, Boca Raton, FL (2019). 
     """
-    reconstructed_matrix = np.zeros(masked_matrix.shape)
+    shape = masked_matrix.shape
+
+    # Vectorize the matrices
+    mask = mask.ravel()
+    masked_matrix = masked_matrix.ravel()
+    reconstructed_matrix = np.zeros_like(masked_matrix)
+
     alpha = 1.1 * normfac
     # lam = lambda
-    lam_init = decfac * np.max(np.abs(mask.T * masked_matrix))
+    lam_init = decfac * np.max(np.abs(mask * masked_matrix))
     lam = np.copy(lam_init)
 
-    loss_func = lambda RCm: np.linalg.norm(masked_matrix - mask * RCm, ord='fro') + lam * np.linalg.norm(RCm.ravel(), ord=1)
+    l2 = lambda v: np.linalg.norm(v, ord=2)
+    l1 = lambda v: np.linalg.norm(v, ord=1)
+    constraint = lambda RCm: l2(masked_matrix - np.matmul(mask, RCm))
+    loss_func = lambda RCm: constraint(RCm) + lam * l1(RCm)
 
     loss = loss_func(reconstructed_matrix)
 
@@ -259,30 +268,30 @@ def iterated_soft_thresholding(masked_matrix, mask, err=1e-6, normfac=1, insweep
     while lam > lam_init * tol:
         for _ in range(insweep):
             loss_prev = loss
-            reconstructed_matrix += mask.T * (masked_matrix - mask * reconstructed_matrix) / alpha
+            reconstructed_matrix += mask * (masked_matrix - mask * reconstructed_matrix) / alpha
 
-            U, S, Vh = np.linalg.svd(reconstructed_matrix, full_matrices=False)
+            U, S, Vh = np.linalg.svd(reconstructed_matrix.reshape(shape), full_matrices=False)
             S = soft_threshold(S, lam / (2 * alpha))
-            reconstructed_matrix = np.matmul(U * S, Vh)
+            reconstructed_matrix = np.matmul(U * S, Vh).ravel()
 
             loss = loss_func(reconstructed_matrix)
 
             if e % report_frequency == 0:
-                report(reconstructed_matrix, e, loss, False)
+                report(reconstructed_matrix.reshape(shape), e, loss, False)
+
+            e += 1
 
             if np.abs(loss - loss_prev) / np.abs(loss + loss_prev) < tol:
                 break
-
-            e += 1
             
-        if np.linalg.norm(masked_matrix - mask * reconstructed_matrix, ord='fro') / 2 < err:
+        if constraint(reconstructed_matrix) / 2 < err:
             break
 
         lam *= decfac
 
-    report(reconstructed_matrix, e, loss, True)
+    report(reconstructed_matrix.reshape(shape), e, loss, True)
 
-    return reconstructed_matrix
+    return reconstructed_matrix.reshape(shape)
 
 
 def soft_threshold(matrix, threshold):

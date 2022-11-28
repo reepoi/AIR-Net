@@ -132,6 +132,55 @@ def run_timeframe_ist(tf, **args):
     tf_grid_masked_rec.vec_field.interp(coords=tf.vec_field.coords).save(save_dir_timeframe('reconstructed'))
 
 
+def run_velocity_by_time_ist(vbt, **args):
+    def meets_stop_criteria(epoch, loss):
+        return loss < args['desired_loss']
+
+    def report(reconstructed_matrix, epoch, loss, last_report: bool, component):
+        if interleved:
+            num_components = len(vbt.components)
+            vbt_reported = vbt.__class__(
+                coords=vbt.coords,
+                **{c: reconstructed_matrix[i::num_components] for i, c in enumerate(vbt.components)}
+            )
+            nmaes = {c: model.norm_mean_abs_error(getattr(vbt, c), getattr(vbt_reported, c), lib=np) for c in vbt.components}
+            print(f'Component: all, Epoch: {epoch}, Loss: {loss:.5e},', *(f'NMAE_{c} (Original): {nmae}' for c, nmae in nmaes.items()))
+        else:
+            nmae_against_original = model.norm_mean_abs_error(reconstructed_matrix, getattr(vbt, component), lib=np)
+            print(f'Component: {component}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE (Original): {nmae_against_original:.5e}')
+        if last_report:
+            print(f'\n*** END {"all" if interleved else component} ***\n')
+
+    def trainer(vel):
+        name = next(training_names)
+        return model.iterated_soft_thresholding(
+            masked_matrix=vel,
+            mask=mask_numpy,
+            report_frequency=args['report_frequency'],
+            report=lambda *args: report(*args, component=name)
+        )
+
+    plot_time = 0
+    interleved = args['interleved']
+    save_dir = lambda p: f'{args["save_dir"]}/{p}'
+
+    vbt.save(save_dir('original'), plot_time=plot_time)
+
+    rows, cols = vbt.shape_as_completable(interleved=interleved)
+
+    mask = model.get_bit_mask((rows, cols), args['mask_rate'])
+    mask_numpy = mask.cpu().numpy()
+
+    training_names = (c for c in vbt.components)
+
+    vbt_masked = vbt.transform(lambda vel: vel * mask_numpy, interleved=interleved)
+    vbt_masked.save(save_dir('masked'), plot_time=plot_time)
+
+    print(f'Mask Rate: {args["mask_rate"]}')
+    vbt_rec = vbt_masked.transform(trainer, interleved=interleved)
+    vbt_rec.save(save_dir('reconstructed'), plot_time=plot_time)
+
+
 def run_timeframe(tf, **args):
     def meets_stop_criteria(epoch, loss):
         return loss < args['desired_loss']
@@ -190,10 +239,10 @@ def run_velocity_by_time(vbt, **args):
             num_components = len(vbt.components)
             vbt_reported = vbt.__class__(
                 coords=vbt.coords,
-                **{c: transformed[i::num_components] for i, c in enumerate(self.components)}
+                **{c: reconstructed_matrix[i::num_components] for i, c in enumerate(vbt.components)}
             )
-            nmaes = {c: model.norm_mean_abs_error(getattr(vbt, c), getattr(vbt_reported, c), lib=np) for c in self.components}
-            print(f'Component: all, Epoch: {epoch}, Loss: {loss:.5e},', *(f'NMAE_{c} (Original): {nmae}' for c, nmae in nmaes))
+            nmaes = {c: model.norm_mean_abs_error(getattr(vbt, c), getattr(vbt_reported, c), lib=np) for c in vbt.components}
+            print(f'Component: all, Epoch: {epoch}, Loss: {loss:.5e},', *(f'NMAE_{c} (Original): {nmae}' for c, nmae in nmaes.items()))
         else:
             nmae_against_original = model.norm_mean_abs_error(reconstructed_matrix, getattr(vbt, component), lib=np)
             print(f'Component: {component}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE (Original): {nmae_against_original:.5e}')
@@ -212,11 +261,11 @@ def run_velocity_by_time(vbt, **args):
             report=lambda *args: report(*args, component=name)
         )
 
-    report_time = 0
+    plot_time = 0
     interleved = args['interleved']
     save_dir = lambda p: f'{args["save_dir"]}/{p}'
 
-    vbt.save(save_dir('original'), plot_time=report_time)
+    vbt.save(save_dir('original'), plot_time=plot_time)
 
     rows, cols = vbt.shape_as_completable(interleved=interleved)
     matrix_factor_dimensions = [model.Shape(rows=rows, cols=rows) for _ in range(args['num_factors'] - 1)]
@@ -229,11 +278,11 @@ def run_velocity_by_time(vbt, **args):
     training_names = (c for c in vbt.components)
 
     vbt_masked = vbt.transform(lambda vel: vel * mask_numpy, interleved=interleved)
-    vbt_masked.save(save_dir('masked'), plot_time=report_time)
+    vbt_masked.save(save_dir('masked'), plot_time=plot_time)
 
     print(f'Mask Rate: {args["mask_rate"]}')
     vbt_rec = vbt_masked.numpy_to_torch().transform(trainer, interleved=interleved).torch_to_numpy()
-    vbt_rec.save(save_dir('reconstructed'), plot_time=report_time)
+    vbt_rec.save(save_dir('reconstructed'), plot_time=plot_time)
 
 
 def run_test(**args):
@@ -261,11 +310,12 @@ def run_test(**args):
         else:
             timesframes = range(vbt.timeframes)
         for t in timeframes:
-            run_timeframe(vbt.timeframe(t), **args)
-            # run_timeframe_ist(vbt.timeframe(t), **args)
+            # run_timeframe(vbt.timeframe(t), **args)
+            run_timeframe_ist(vbt.timeframe(t), **args)
             break
     else:
-        run_velocity_by_time(vbt, **args)
+        # run_velocity_by_time(vbt, **args)
+        run_velocity_by_time_ist(vbt, **args)
 
 
 if __name__ == '__main__':
