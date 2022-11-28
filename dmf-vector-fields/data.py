@@ -437,15 +437,15 @@ class VelocityByTime:
         )
     
 
-    def shape_as_completable(self, interleved=True):
+    def shape_as_completable(self, interleaved=True):
         """
         Returns a matrix for completion.
 
         Parameters
         ----------
-        interleved: bool
-            If ``interleved`` is ``True``, this returns a single matrix
-            with the rows velx and vely for every time step interleved.
+        interleaved: bool
+            If ``interleaved`` is ``True``, this returns a single matrix
+            with the rows velx and vely for every time step interleaved.
             Otherwise, velx and vely for every timestep are returned separately.
         
         Returns
@@ -453,26 +453,26 @@ class VelocityByTime:
             ``VelocityByTime``
         """
         shape = self.velx_by_time.shape
-        if interleved:
+        if interleaved:
             shape = (shape[0] * len(self.components), shape[1])
         return shape
 
 
-    def completable_matrices(self, interleved=True):
+    def completable_matrices(self, interleaved=True):
         """
         Returns the matrix or matrices that are completable.
 
         Parameters
         ----------
-        interleved: bool, default True
+        interleaved: bool, default True
             See :func:`VelocityByTime.shape_as_completable`.
 
         Returns
         -------
             np.ndarray
         """
-        if interleved:
-            completable = self.lib.zeros(self.shape_as_completable(interleved=interleved))
+        if interleaved:
+            completable = self.lib.zeros(self.shape_as_completable(interleaved=interleaved))
             if self.lib.__name__ == 'torch':
                 completable = completable.to(device)
             num_components = len(self.components)
@@ -482,7 +482,7 @@ class VelocityByTime:
         return tuple(getattr(self, c) for c in self.components)
 
 
-    def transform(self, transform_func, interleved=True, apply_to_coords=False):
+    def transform(self, transform_func, interleaved=True, apply_to_coords=False):
         """
         Apply a transformation to the completable data fields of AnuersymVelocityByTime.
 
@@ -491,7 +491,7 @@ class VelocityByTime:
         transform_func: function(ndarray)
             The transformation to apply.
         
-        interleved: bool, default True
+        interleaved: bool, default True
             See :func:`VelocityByTime.shape_as_completable`.
 
         apply_to_coords: bool, False
@@ -502,8 +502,8 @@ class VelocityByTime:
             ``VelocityByTime``
         """
         coords = self.coords.transform(transform_func) if apply_to_coords else self.coords
-        if interleved:
-            completable = self.lib.zeros(self.shape_as_completable(interleved=interleved))
+        if interleaved:
+            completable = self.lib.zeros(self.shape_as_completable(interleaved=interleaved))
             if self.lib.__name__ == 'torch':
                 completable = completable.to(device)
             num_components = len(self.components)
@@ -531,7 +531,7 @@ class VelocityByTime:
             ``VelocityByTime`` whose data are numpy ndarrays.
         """
         transform_func = lambda x: x.detach().cpu().numpy()
-        return self.transform(transform_func, interleved=False, apply_to_coords=True)
+        return self.transform(transform_func, interleaved=False, apply_to_coords=True)
     
 
     def numpy_to_torch(self):
@@ -543,7 +543,7 @@ class VelocityByTime:
             ``VelocityByTime`` whose data are torch tensors.
         """
         transform_func = lambda x: torch.tensor(x).to(device)
-        return self.transform(transform_func, interleved=False, apply_to_coords=True)
+        return self.transform(transform_func, interleaved=False, apply_to_coords=True)
 
 
     def save(self, path, plot_time=None):

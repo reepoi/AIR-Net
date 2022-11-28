@@ -60,9 +60,9 @@ def get_argparser():
                         help='the timeframe to use when the vector field is time dependent.')
 
     # VelocityByTime options
-    parser.add_argument('--interleved', dest='interleved', action='store_true')
-    parser.add_argument('--no-interleved', dest='interleved', action='store_false')
-    parser.set_defaults(interleved=None)
+    parser.add_argument('--interleaved', dest='interleaved', action='store_true')
+    parser.add_argument('--no-interleaved', dest='interleaved', action='store_false')
+    parser.set_defaults(interleaved=None)
     return parser
 
 
@@ -154,7 +154,7 @@ def run_velocity_by_time(vbt, **args):
         return loss < args['desired_loss']
 
     def report(reconstructed_matrix, epoch, loss, last_report: bool, component):
-        if interleved:
+        if interleaved:
             num_components = len(vbt.components)
             vbt_reported = vbt.__class__(
                 coords=vbt.coords,
@@ -166,21 +166,21 @@ def run_velocity_by_time(vbt, **args):
             nmae_against_original = model.norm_mean_abs_error(reconstructed_matrix, getattr(vbt, component), lib=np)
             print(f'Component: {component}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE (Original): {nmae_against_original:.5e}')
         if last_report:
-            print(f'\n*** END {"all" if interleved else component} ***\n')
+            print(f'\n*** END {"all" if interleaved else component} ***\n')
 
     plot_time = 0
-    interleved = args['interleved']
+    interleaved = args['interleaved']
     save_dir = lambda p: f'{args["save_dir"]}/{p}'
 
     vbt.save(save_dir('original'), plot_time=plot_time)
 
-    rows, cols = vbt.shape_as_completable(interleved=interleved)
+    rows, cols = vbt.shape_as_completable(interleaved=interleaved)
 
     mask = model.get_bit_mask((rows, cols), args['mask_rate'])
     mask_numpy = mask.cpu().numpy()
 
     training_names = (c for c in vbt.components)
-    vbt_masked = vbt.transform(lambda vel: vel * mask_numpy, interleved=interleved)
+    vbt_masked = vbt.transform(lambda vel: vel * mask_numpy, interleaved=interleaved)
     vbt_masked.save(save_dir('masked'), plot_time=plot_time)
 
     print(f'Mask Rate: {args["mask_rate"]}')
@@ -200,7 +200,7 @@ def run_velocity_by_time(vbt, **args):
         matrix_factor_dimensions = [model.Shape(rows=rows, cols=rows) for _ in range(args['num_factors'] - 1)]
         matrix_factor_dimensions.append(model.Shape(rows=rows, cols=cols))
         print(matrix_factor_dimensions)
-        vbt_rec = vbt_masked.numpy_to_torch().transform(trainer, interleved=interleved).torch_to_numpy()
+        vbt_rec = vbt_masked.numpy_to_torch().transform(trainer, interleaved=interleaved).torch_to_numpy()
     elif args['algorithm'] is Algorithm.IST:
         def trainer(vel):
             name = next(training_names)
@@ -210,7 +210,7 @@ def run_velocity_by_time(vbt, **args):
                 report_frequency=args['report_frequency'],
                 report=lambda *args: report(*args, component=name)
             )
-        vbt_rec = vbt_masked.transform(trainer, interleved=interleved)
+        vbt_rec = vbt_masked.transform(trainer, interleaved=interleaved)
 
     vbt_rec.save(save_dir('reconstructed'), plot_time=plot_time)
 
@@ -234,7 +234,7 @@ def run_test(**args):
         func_z = lambda t, x, y, z: np.cos(2 * x - 2 * z)
         vbt = data.velocity_by_time_function_3d(func_x, func_y, func_z, (-2, 2), args['grid_density'])
     
-    if args['interleved'] is None:
+    if args['interleaved'] is None:
         if (t := args['timeframe']) >= 0:
             timeframes = [t]
         else:
