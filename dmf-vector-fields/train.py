@@ -19,10 +19,6 @@ import data
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
-Coordinates = namedtuple('Coordinates', ['x', 'y'])
-VectorField = namedtuple('VectorField', ['coords', 'velx', 'vely'])
-
-
 class DataSet(enum.Enum):
     ANEURYSM = 'aneurysm'
     FUNC1 = 'func1'
@@ -92,95 +88,6 @@ def num_large_singular_values(matrix, threshold=5e-1):
     return np.sum(np.where(s > threshold, 1, 0))
 
 
-def run_timeframe_ist(tf, **args):
-    def report(reconstructed_matrix, epoch, loss, last_report: bool, component):
-        vel = data.interp_griddata(tf_grid.vec_field.coords, reconstructed_matrix, tf.vec_field.coords)
-        nmae_against_original = model.norm_mean_abs_error(vel, getattr(tf.vec_field, component), lib=np)
-        print(f'Component: {component}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE (Original): {nmae_against_original:.5e}')
-        if last_report:
-            print(f'\n*** END {component} ***\n')
-
-    def trainer(vel):
-        name = next(training_names)
-        return model.iterated_soft_thresholding(
-            masked_matrix=vel,
-            mask=mask_numpy,
-            report_frequency=args['report_frequency'],
-            report=lambda *args: report(*args, component=name)
-        )
-
-    save_dir_timeframe = lambda p: f'{args["save_dir"]}/{p}.{tf.time}'
-
-    tf.vec_field.save(save_dir_timeframe('original'))
-
-    tf_grid = tf.as_completable(grid_density=args['grid_density'])
-    tf_grid.vec_field.save(save_dir_timeframe('interpolated'))
-
-    rows, cols = tf_grid.vec_field.velx.shape
-
-    mask = model.get_bit_mask((rows, cols), args['mask_rate'])
-    mask_numpy = mask.cpu().numpy()
-
-    training_names = (c for c in tf.vec_field.components)
-
-    tf_grid_masked = tf_grid.transform(lambda vel: vel * mask_numpy)
-    tf_grid_masked.vec_field.save(save_dir_timeframe('masked_interpolated'))
-
-    print(f'Mask Rate: {args["mask_rate"]}')
-    tf_grid_masked_rec = tf_grid_masked.transform(trainer)
-    tf_grid_masked_rec.vec_field.save(save_dir_timeframe('reconstructed_interpolated'))
-    tf_grid_masked_rec.vec_field.interp(coords=tf.vec_field.coords).save(save_dir_timeframe('reconstructed'))
-
-
-def run_velocity_by_time_ist(vbt, **args):
-    def meets_stop_criteria(epoch, loss):
-        return loss < args['desired_loss']
-
-    def report(reconstructed_matrix, epoch, loss, last_report: bool, component):
-        if interleved:
-            num_components = len(vbt.components)
-            vbt_reported = vbt.__class__(
-                coords=vbt.coords,
-                **{c: reconstructed_matrix[i::num_components] for i, c in enumerate(vbt.components)}
-            )
-            nmaes = {c: model.norm_mean_abs_error(getattr(vbt, c), getattr(vbt_reported, c), lib=np) for c in vbt.components}
-            print(f'Component: all, Epoch: {epoch}, Loss: {loss:.5e},', *(f'NMAE_{c} (Original): {nmae}' for c, nmae in nmaes.items()))
-        else:
-            nmae_against_original = model.norm_mean_abs_error(reconstructed_matrix, getattr(vbt, component), lib=np)
-            print(f'Component: {component}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE (Original): {nmae_against_original:.5e}')
-        if last_report:
-            print(f'\n*** END {"all" if interleved else component} ***\n')
-
-    def trainer(vel):
-        name = next(training_names)
-        return model.iterated_soft_thresholding(
-            masked_matrix=vel,
-            mask=mask_numpy,
-            report_frequency=args['report_frequency'],
-            report=lambda *args: report(*args, component=name)
-        )
-
-    plot_time = 0
-    interleved = args['interleved']
-    save_dir = lambda p: f'{args["save_dir"]}/{p}'
-
-    vbt.save(save_dir('original'), plot_time=plot_time)
-
-    rows, cols = vbt.shape_as_completable(interleved=interleved)
-
-    mask = model.get_bit_mask((rows, cols), args['mask_rate'])
-    mask_numpy = mask.cpu().numpy()
-
-    training_names = (c for c in vbt.components)
-
-    vbt_masked = vbt.transform(lambda vel: vel * mask_numpy, interleved=interleved)
-    vbt_masked.save(save_dir('masked'), plot_time=plot_time)
-
-    print(f'Mask Rate: {args["mask_rate"]}')
-    vbt_rec = vbt_masked.transform(trainer, interleved=interleved)
-    vbt_rec.save(save_dir('reconstructed'), plot_time=plot_time)
-
-
 def run_timeframe(tf, **args):
     def meets_stop_criteria(epoch, loss):
         return loss < args['desired_loss']
@@ -192,18 +99,6 @@ def run_timeframe(tf, **args):
         if last_report:
             print(f'\n*** END {component} ***\n')
 
-    def trainer(vel):
-        name = next(training_names)
-        return model.train(
-            max_epochs=args['max_epochs'],
-            matrix_factor_dimensions=matrix_factor_dimensions,
-            masked_matrix=vel,
-            mask=mask,
-            meets_stop_criteria=meets_stop_criteria,
-            report_frequency=args['report_frequency'],
-            report=lambda *args: report(*args, component=name)
-        )
-
     save_dir_timeframe = lambda p: f'{args["save_dir"]}/{p}.{tf.time}'
 
     tf.vec_field.save(save_dir_timeframe('original'))
@@ -212,9 +107,6 @@ def run_timeframe(tf, **args):
     tf_grid.vec_field.save(save_dir_timeframe('interpolated'))
 
     rows, cols = tf_grid.vec_field.velx.shape
-    matrix_factor_dimensions = [model.Shape(rows=rows, cols=rows) for _ in range(args['num_factors'] - 1)]
-    matrix_factor_dimensions.append(model.Shape(rows=rows, cols=cols))
-    print(matrix_factor_dimensions)
 
     mask = model.get_bit_mask((rows, cols), args['mask_rate'])
     mask_numpy = mask.cpu().numpy()
@@ -225,7 +117,34 @@ def run_timeframe(tf, **args):
     tf_grid_masked.vec_field.save(save_dir_timeframe('masked_interpolated'))
 
     print(f'Mask Rate: {args["mask_rate"]}')
-    tf_grid_masked_rec = tf_grid_masked.numpy_to_torch().transform(trainer).torch_to_numpy()
+
+    if args['algorithm'] is Algorithm.DMF:
+        def trainer(vel):
+            name = next(training_names)
+            return model.train(
+                max_epochs=args['max_epochs'],
+                matrix_factor_dimensions=matrix_factor_dimensions,
+                masked_matrix=vel,
+                mask=mask,
+                meets_stop_criteria=meets_stop_criteria,
+                report_frequency=args['report_frequency'],
+                report=lambda *args: report(*args, component=name)
+            )
+        matrix_factor_dimensions = [model.Shape(rows=rows, cols=rows) for _ in range(args['num_factors'] - 1)]
+        matrix_factor_dimensions.append(model.Shape(rows=rows, cols=cols))
+        print(matrix_factor_dimensions)
+        tf_grid_masked_rec = tf_grid_masked.numpy_to_torch().transform(trainer).torch_to_numpy()
+    elif args['algorithm'] is Algorithm.IST:
+        def trainer(vel):
+            name = next(training_names)
+            return model.iterated_soft_thresholding(
+                masked_matrix=vel,
+                mask=mask_numpy,
+                report_frequency=args['report_frequency'],
+                report=lambda *args: report(*args, component=name)
+            )
+        tf_grid_masked_rec = tf_grid_masked.transform(trainer)
+
     tf_grid_masked_rec.vec_field.save(save_dir_timeframe('reconstructed_interpolated'))
     tf_grid_masked_rec.vec_field.interp(coords=tf.vec_field.coords).save(save_dir_timeframe('reconstructed'))
 
@@ -242,24 +161,12 @@ def run_velocity_by_time(vbt, **args):
                 **{c: reconstructed_matrix[i::num_components] for i, c in enumerate(vbt.components)}
             )
             nmaes = {c: model.norm_mean_abs_error(getattr(vbt, c), getattr(vbt_reported, c), lib=np) for c in vbt.components}
-            print(f'Component: all, Epoch: {epoch}, Loss: {loss:.5e},', *(f'NMAE_{c} (Original): {nmae}' for c, nmae in nmaes.items()))
+            print(f'Component: all, Epoch: {epoch}, Loss: {loss:.5e},', *(f'NMAE_{c} (Original): {nmae:.5e}' for c, nmae in nmaes.items()))
         else:
             nmae_against_original = model.norm_mean_abs_error(reconstructed_matrix, getattr(vbt, component), lib=np)
             print(f'Component: {component}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE (Original): {nmae_against_original:.5e}')
         if last_report:
             print(f'\n*** END {"all" if interleved else component} ***\n')
-
-    def trainer(vel):
-        name = next(training_names)
-        return model.train(
-            max_epochs=args['max_epochs'],
-            matrix_factor_dimensions=matrix_factor_dimensions,
-            masked_matrix=vel,
-            mask=mask,
-            meets_stop_criteria=meets_stop_criteria,
-            report_frequency=args['report_frequency'],
-            report=lambda *args: report(*args, component=name)
-        )
 
     plot_time = 0
     interleved = args['interleved']
@@ -268,20 +175,43 @@ def run_velocity_by_time(vbt, **args):
     vbt.save(save_dir('original'), plot_time=plot_time)
 
     rows, cols = vbt.shape_as_completable(interleved=interleved)
-    matrix_factor_dimensions = [model.Shape(rows=rows, cols=rows) for _ in range(args['num_factors'] - 1)]
-    matrix_factor_dimensions.append(model.Shape(rows=rows, cols=cols))
-    print(matrix_factor_dimensions)
 
     mask = model.get_bit_mask((rows, cols), args['mask_rate'])
     mask_numpy = mask.cpu().numpy()
 
     training_names = (c for c in vbt.components)
-
     vbt_masked = vbt.transform(lambda vel: vel * mask_numpy, interleved=interleved)
     vbt_masked.save(save_dir('masked'), plot_time=plot_time)
 
     print(f'Mask Rate: {args["mask_rate"]}')
-    vbt_rec = vbt_masked.numpy_to_torch().transform(trainer, interleved=interleved).torch_to_numpy()
+
+    if args['algorithm'] is Algorithm.DMF:
+        def trainer(vel):
+            name = next(training_names)
+            return model.train(
+                max_epochs=args['max_epochs'],
+                matrix_factor_dimensions=matrix_factor_dimensions,
+                masked_matrix=vel,
+                mask=mask,
+                meets_stop_criteria=meets_stop_criteria,
+                report_frequency=args['report_frequency'],
+                report=lambda *args: report(*args, component=name)
+            )
+        matrix_factor_dimensions = [model.Shape(rows=rows, cols=rows) for _ in range(args['num_factors'] - 1)]
+        matrix_factor_dimensions.append(model.Shape(rows=rows, cols=cols))
+        print(matrix_factor_dimensions)
+        vbt_rec = vbt_masked.numpy_to_torch().transform(trainer, interleved=interleved).torch_to_numpy()
+    elif args['algorithm'] is Algorithm.IST:
+        def trainer(vel):
+            name = next(training_names)
+            return model.iterated_soft_thresholding(
+                masked_matrix=vel,
+                mask=mask_numpy,
+                report_frequency=args['report_frequency'],
+                report=lambda *args: report(*args, component=name)
+            )
+        vbt_rec = vbt_masked.transform(trainer, interleved=interleved)
+
     vbt_rec.save(save_dir('reconstructed'), plot_time=plot_time)
 
 
@@ -310,12 +240,10 @@ def run_test(**args):
         else:
             timesframes = range(vbt.timeframes)
         for t in timeframes:
-            # run_timeframe(vbt.timeframe(t), **args)
-            run_timeframe_ist(vbt.timeframe(t), **args)
+            run_timeframe(vbt.timeframe(t), **args)
             break
     else:
-        # run_velocity_by_time(vbt, **args)
-        run_velocity_by_time_ist(vbt, **args)
+        run_velocity_by_time(vbt, **args)
 
 
 if __name__ == '__main__':
@@ -323,8 +251,8 @@ if __name__ == '__main__':
 
     if args['run_matrix_config']:
         config_values = OrderedDict(
-            num_factors=[2, 3, 4, 5],
             mask_rate=[0.3, 0.5, 0.7, 0.9],
+            num_factors=[2, 3, 4, 5],
             grid_density = [100, 200, 300, 400, 500]
         )
         config_values_keys = config_values.keys()
