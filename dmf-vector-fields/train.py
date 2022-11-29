@@ -32,12 +32,6 @@ class Algorithm(enum.Enum):
 
 def get_argparser():
     parser = argparse.ArgumentParser(description='Run deep matrix factorization with 2d aneurysm.')
-    parser.add_argument('--max-epochs', type=int, default=20_000,
-                        help='maximum number of epochs.')
-    parser.add_argument('--desired-loss', type=float, default=1e-4,
-                        help='desired loss for early training termination.')
-    parser.add_argument('--num-factors', type=int, default=3,
-                        help='number of matrix factors.')
     parser.add_argument('--mask-rate', type=float, default=None,
                         help='the expected precentage of matrix entries to be set to zero.')
     parser.add_argument('--algorithm', type=Algorithm,
@@ -52,6 +46,14 @@ def get_argparser():
                         help='run over various test configurations.')
     parser.add_argument('--report-frequency', type=int, default=500,
                         help='the number of epochs to pass before printing a report to the console.')
+
+    # Deep Matrix Factorization options
+    parser.add_argument('--max-epochs', type=int, default=20_000,
+                        help='maximum number of epochs.')
+    parser.add_argument('--desired-loss', type=float, default=1e-4,
+                        help='desired loss for early training termination.')
+    parser.add_argument('--num-factors', type=int, default=3,
+                        help='number of matrix factors.')
 
     # Timeframe options
     parser.add_argument('--grid-density', type=int, default=200,
@@ -88,7 +90,7 @@ def num_large_singular_values(matrix, threshold=5e-1):
     return np.sum(np.where(s > threshold, 1, 0))
 
 
-def run_timeframe(tf, **args):
+def run_timeframe(tf, tf_masked, tf_mask, **args):
     def meets_stop_criteria(epoch, loss):
         return loss < args['desired_loss']
 
@@ -101,26 +103,25 @@ def run_timeframe(tf, **args):
 
     save_dir_timeframe = lambda p: f'{args["save_dir"]}/{p}.{tf.time}'
 
-    tf.vec_field.save(save_dir_timeframe('original'))
-
+    tf.save(save_dir_timeframe('original'))
     tf_grid = tf.as_completable(grid_density=args['grid_density'])
-    tf_grid.vec_field.save(save_dir_timeframe('interpolated'))
+    tf_grid.save(save_dir_timeframe('interpolated'))
 
     rows, cols = tf_grid.vec_field.velx.shape
 
-    mask = model.get_bit_mask((rows, cols), args['mask_rate'])
-    mask_numpy = mask.cpu().numpy()
-
-    training_names = (c for c in tf.vec_field.components)
-
-    tf_grid_masked = tf_grid.transform(lambda vel: vel * mask_numpy)
-    tf_grid_masked.vec_field.save(save_dir_timeframe('masked_interpolated'))
+    tf_masked.save(save_dir_timeframe('masked'))
+    tf_masked_grid = tf_masked.as_completable(grid_density=args['grid_density'])
+    tf_masked_grid.save(save_dir_timeframe('masked_interpolated'))
 
     print(f'Mask Rate: {args["mask_rate"]}')
 
+    training_names = iter(tf.vec_field.components)
+    masks = tf_mask.as_completable(grid_density=args['grid_density'])
+    masks = iter((masks.vec_field.velx, masks.vec_field.vely))
     if args['algorithm'] is Algorithm.DMF:
         def trainer(vel):
             name = next(training_names)
+            mask = torch.tensor(next(masks)).to(device)
             return model.train(
                 max_epochs=args['max_epochs'],
                 matrix_factor_dimensions=matrix_factor_dimensions,
@@ -133,23 +134,25 @@ def run_timeframe(tf, **args):
         matrix_factor_dimensions = [model.Shape(rows=rows, cols=rows) for _ in range(args['num_factors'] - 1)]
         matrix_factor_dimensions.append(model.Shape(rows=rows, cols=cols))
         print(matrix_factor_dimensions)
-        tf_grid_masked_rec = tf_grid_masked.numpy_to_torch().transform(trainer).torch_to_numpy()
+        tf_grid_masked_rec = tf_masked_grid.numpy_to_torch().transform(trainer).torch_to_numpy()
     elif args['algorithm'] is Algorithm.IST:
         def trainer(vel):
             name = next(training_names)
+            mask = next(masks)
             return model.iterated_soft_thresholding(
                 masked_matrix=vel,
-                mask=mask_numpy,
+                mask=mask,
+                normfac=np.max(mask),
                 report_frequency=args['report_frequency'],
                 report=lambda *args: report(*args, component=name)
             )
-        tf_grid_masked_rec = tf_grid_masked.transform(trainer)
+        tf_grid_masked_rec = tf_masked_grid.transform(trainer)
 
-    tf_grid_masked_rec.vec_field.save(save_dir_timeframe('reconstructed_interpolated'))
+    tf_grid_masked_rec.save(save_dir_timeframe('reconstructed_interpolated'))
     tf_grid_masked_rec.vec_field.interp(coords=tf.vec_field.coords).save(save_dir_timeframe('reconstructed'))
 
 
-def run_velocity_by_time(vbt, **args):
+def run_velocity_by_time(vbt, vbt_masked, vbt_mask, **args):
     def meets_stop_criteria(epoch, loss):
         return loss < args['desired_loss']
 
@@ -173,30 +176,27 @@ def run_velocity_by_time(vbt, **args):
     save_dir = lambda p: f'{args["save_dir"]}/{p}'
 
     vbt.save(save_dir('original'), plot_time=plot_time)
-
-    rows, cols = vbt.shape_as_completable(interleaved=interleaved)
-
-    mask = model.get_bit_mask((rows, cols), args['mask_rate'])
-    mask_numpy = mask.cpu().numpy()
-
-    training_names = (c for c in vbt.components)
-    vbt_masked = vbt.transform(lambda vel: vel * mask_numpy, interleaved=interleaved)
     vbt_masked.save(save_dir('masked'), plot_time=plot_time)
 
     print(f'Mask Rate: {args["mask_rate"]}')
 
+    training_names = iter(vbt.components)
+    mask = vbt_mask.completable_matrices(interleaved=interleaved)
+    mask = mask if interleaved else mask[0]
     if args['algorithm'] is Algorithm.DMF:
+        mask_torch = torch.tensor(mask).to(device)
         def trainer(vel):
             name = next(training_names)
             return model.train(
                 max_epochs=args['max_epochs'],
                 matrix_factor_dimensions=matrix_factor_dimensions,
                 masked_matrix=vel,
-                mask=mask,
+                mask=mask_torch,
                 meets_stop_criteria=meets_stop_criteria,
                 report_frequency=args['report_frequency'],
                 report=lambda *args: report(*args, component=name)
             )
+        rows, cols = vbt.shape_as_completable(interleaved=interleaved)
         matrix_factor_dimensions = [model.Shape(rows=rows, cols=rows) for _ in range(args['num_factors'] - 1)]
         matrix_factor_dimensions.append(model.Shape(rows=rows, cols=cols))
         print(matrix_factor_dimensions)
@@ -206,7 +206,7 @@ def run_velocity_by_time(vbt, **args):
             name = next(training_names)
             return model.iterated_soft_thresholding(
                 masked_matrix=vel,
-                mask=mask_numpy,
+                mask=mask,
                 report_frequency=args['report_frequency'],
                 report=lambda *args: report(*args, component=name)
             )
@@ -234,16 +234,19 @@ def run_test(**args):
         func_z = lambda t, x, y, z: np.cos(2 * x - 2 * z)
         vbt = data.velocity_by_time_function_3d(func_x, func_y, func_z, (-2, 2), args['grid_density'])
     
+    mask = model.get_bit_mask(vbt.shape_as_completable(interleaved=False), args['mask_rate'])
+    vbt_mask = data.VelocityByTime(coords=vbt.coords, velx_by_time=mask, vely_by_time=mask)
+    vbt_masked = vbt.transform(lambda vel: vel * mask, interleaved=False)
+
     if args['interleaved'] is None:
         if (t := args['timeframe']) >= 0:
             timeframes = [t]
         else:
             timesframes = range(vbt.timeframes)
         for t in timeframes:
-            run_timeframe(vbt.timeframe(t), **args)
-            break
+            run_timeframe(vbt.timeframe(t), vbt_masked.timeframe(t), vbt_mask.timeframe(t), **args)
     else:
-        run_velocity_by_time(vbt, **args)
+        run_velocity_by_time(vbt, vbt_masked, vbt_mask, **args)
 
 
 if __name__ == '__main__':

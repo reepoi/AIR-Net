@@ -122,7 +122,7 @@ def get_bit_mask(shape, rate):
     -------
         An ndarray.
     """
-    return torch.tensor(rng.random(shape) > rate).int().to(device)
+    return np.array(rng.random(shape) > rate, dtype=int)
 
 
 def train(max_epochs, matrix_factor_dimensions, masked_matrix, mask,

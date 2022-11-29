@@ -223,14 +223,14 @@ class VectorField:
         )
     
 
-    def save(self, path, plot=True):
+    def save(self, path, plot=True, **quiver_opts):
         save = lambda name, arr: np.savetxt(f'{path}_{name}.csv', arr, delimiter=',')
         self.coords.save(path)
         for c in self.components:
             save(c, getattr(self, c))
         if plot:
             fig, ax = plt.subplots()
-            ax.quiver(*self.to_tuple())
+            ax.quiver(*self.to_tuple(), **quiver_opts)
             fig.savefig(f'{path}.png')
             plt.close(fig)
 
@@ -244,11 +244,11 @@ class VectorField3D(VectorField):
         return *super().components, 'velz'
     
 
-    def save(self, path, plot=True):
+    def save(self, path, plot=True, **quiver_opts):
         if plot:
             fig, ax = plt.subplots()
             ax = fig.add_subplot(projection='3d')
-            ax.quiver(*self.to_tuple())
+            ax.quiver(*self.to_tuple(), **quiver_opts)
             fig.savefig(f'{path}.png')
             plt.close(fig)
         
@@ -345,8 +345,8 @@ class Timeframe:
         return self.transform(transform_func, apply_to_coords=True)
     
 
-    def save(self, path, plot=True):
-        self.vec_field.save(path, plot=plot)
+    def save(self, path, plot=True, **quiver_opts):
+        self.vec_field.save(path, plot=plot, **quiver_opts)
 
 
 @dataclass
@@ -502,14 +502,10 @@ class VelocityByTime:
             ``VelocityByTime``
         """
         coords = self.coords.transform(transform_func) if apply_to_coords else self.coords
+        completable = self.completable_matrices(interleaved=interleaved)
         if interleaved:
-            completable = self.lib.zeros(self.shape_as_completable(interleaved=interleaved))
-            if self.lib.__name__ == 'torch':
-                completable = completable.to(device)
-            num_components = len(self.components)
-            for i, c in enumerate(self.components):
-                completable[i::num_components] = getattr(self, c)
             transformed = transform_func(completable)
+            num_components = len(self.components)
             return self.__class__(
                 filepath_vel_by_time=self.filepath_vel_by_time,
                 coords=coords,
@@ -518,7 +514,7 @@ class VelocityByTime:
         return self.__class__(
             filepath_vel_by_time=self.filepath_vel_by_time,
             coords=coords,
-            **{c: transform_func(getattr(self, c)) for c in self.components}
+            **{c: transform_func(m) for c, m in zip(self.components, completable)}
         )
     
 
@@ -546,14 +542,14 @@ class VelocityByTime:
         return self.transform(transform_func, interleaved=False, apply_to_coords=True)
 
 
-    def save(self, path, plot_time=None):
+    def save(self, path, plot_time=None, **quiver_opts):
         save = lambda name, arr: np.savetxt(f'{path}_{name}.csv', arr, delimiter=',')
         self.coords.save(path)
         for c in self.components:
             save(c, getattr(self, c))
         if plot_time is not None:
             fig, ax = plt.subplots()
-            ax.quiver(*self.timeframe(plot_time).vec_field.to_tuple())
+            ax.quiver(*self.timeframe(plot_time).vec_field.to_tuple(), **quiver_opts)
             fig.savefig(f'{path}.png')
             plt.close(fig)
 
@@ -675,6 +671,10 @@ class TimeframeAneurysm(Timeframe):
         )
     
 
+    def save(self, path, plot=True):
+        super().save(path, plot=True, scale=400)
+
+
 class VelocityByTimeAneurysm(VelocityByTime):
     @property
     def timeframe_class(self):
@@ -691,6 +691,10 @@ class VelocityByTimeAneurysm(VelocityByTime):
         data = data.to_numpy()
         self.velx_by_time = data[0::2]
         self.vely_by_time = data[1::2]
+
+
+    def save(self, path, plot_time=True):
+        super().save(path, plot_time=True, scale=400)
 
 
 def interp_griddata(coords: Coordinates, func_values, new_coords: Coordinates, **kwargs):
