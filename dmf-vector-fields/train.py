@@ -116,17 +116,16 @@ def run_timeframe(tf, tf_masked, tf_mask, **args):
     print(f'Mask Rate: {args["mask_rate"]}')
 
     training_names = iter(tf.vec_field.components)
-    masks = tf_mask.as_completable(grid_density=args['grid_density'])
-    masks = iter((masks.vec_field.velx, masks.vec_field.vely))
+    mask = tf_mask.as_completable(grid_density=args['grid_density']).vec_field.velx
     if args['algorithm'] is Algorithm.DMF:
+        mask_torch = torch.tensor(mask).to(device)
         def trainer(vel):
             name = next(training_names)
-            mask = torch.tensor(next(masks)).to(device)
             return model.train(
                 max_epochs=args['max_epochs'],
                 matrix_factor_dimensions=matrix_factor_dimensions,
                 masked_matrix=vel,
-                mask=mask,
+                mask=mask_torch,
                 meets_stop_criteria=meets_stop_criteria,
                 report_frequency=args['report_frequency'],
                 report=lambda *args: report(*args, component=name)
@@ -138,7 +137,6 @@ def run_timeframe(tf, tf_masked, tf_mask, **args):
     elif args['algorithm'] is Algorithm.IST:
         def trainer(vel):
             name = next(training_names)
-            mask = next(masks)
             return model.iterated_soft_thresholding(
                 masked_matrix=vel,
                 mask=mask,
