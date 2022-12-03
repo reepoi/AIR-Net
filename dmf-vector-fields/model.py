@@ -220,7 +220,7 @@ def iterated_soft_thresholding(masked_matrix, mask, err=1e-6, normfac=1, insweep
     mask: numeric
         The bit-mask matrix that was used to create ``masked_matrix``.
     
-    err: positive scalar
+    err: positive scalar, default 1e-6
         :math:`\varepsilon` in the constraint of the minization problem.
     
     normfac: scalar, default 1
@@ -230,11 +230,20 @@ def iterated_soft_thresholding(masked_matrix, mask, err=1e-6, normfac=1, insweep
     insweep: int, default 200
         The maximum number of internal sweeps for solving :math:`||(X - \tilde{X}) \odot M||_F^2 + \lambda||X||_*`
     
-    tol: scalar
+    tol: scalar, default 1e-4
         The tolerance for (???).
     
-    decfac: scalar
+    decfac: scalar, default 0.9
         The decrease factor for cooling :math:`\lambda` (???).
+
+    report_frequency: int, default 100
+        The number of epochs that should pass before calling the ``report`` function.
+    
+    report: function
+        A function for the caller of ``iterated_soft_thresholding``
+        to view the current state of the solver. This function will
+        be passed the current reconstructed matrix, epoch, loss, and
+        a boolean whether it is the last time ``report`` will be called.
 
     Returns
     -------
@@ -242,7 +251,7 @@ def iterated_soft_thresholding(masked_matrix, mask, err=1e-6, normfac=1, insweep
     
     References
     ----------
-    .. [1] Majumdar, A.: Singular Value Shrinkage. In: Compressed sensing for engineers.
+    .. [1] Majumdar, A.: Singular Value Shrinkage. In: Compressed Sensing for Engineers.
        pp. 110–119. CRC Press/Taylor &amp; Francis, Boca Raton, FL (2019). 
     """
     shape = masked_matrix.shape
@@ -260,9 +269,9 @@ def iterated_soft_thresholding(masked_matrix, mask, err=1e-6, normfac=1, insweep
     l2 = lambda v: np.linalg.norm(v, ord=2)
     l1 = lambda v: np.linalg.norm(v, ord=1)
     constraint = lambda RCm: l2(masked_matrix - np.matmul(mask, RCm))
-    loss_func = lambda RCm: constraint(RCm) + lam * l1(RCm)
+    loss_func = lambda RCm, lam: constraint(RCm) + lam * l1(RCm)
 
-    loss = loss_func(reconstructed_matrix)
+    loss = loss_func(reconstructed_matrix, lam)
 
     e = 1
     while lam > lam_init * tol:
@@ -274,7 +283,7 @@ def iterated_soft_thresholding(masked_matrix, mask, err=1e-6, normfac=1, insweep
             S = soft_threshold(S, lam / (2 * alpha))
             reconstructed_matrix = np.matmul(U * S, Vh).ravel()
 
-            loss = loss_func(reconstructed_matrix)
+            loss = loss_func(reconstructed_matrix, lam)
 
             if e % report_frequency == 0:
                 report(reconstructed_matrix.reshape(shape), e, loss, False)
