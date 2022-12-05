@@ -693,8 +693,8 @@ class VelocityByTimeAneurysm(VelocityByTime):
         self.vely_by_time = data[1::2]
 
 
-    def save(self, path, plot_time=True):
-        super().save(path, plot_time=True, scale=400)
+    def save(self, path, plot_time=None):
+        super().save(path, plot_time=plot_time, scale=400)
 
 
 def interp_griddata(coords: Coordinates, func_values, new_coords: Coordinates, **kwargs):

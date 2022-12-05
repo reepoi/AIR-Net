@@ -1,10 +1,8 @@
 import argparse
-from collections import namedtuple, OrderedDict
+from collections import OrderedDict
 import enum
 import itertools
-import os
 import json
-import pdb
 from pathlib import Path
 
 import torch
@@ -30,41 +28,44 @@ class Algorithm(enum.Enum):
     IST = 'ist'
 
 
+class Technique(enum.Enum):
+    IDENTITY = 'identity'
+    INTERLEAVED = 'interleaved'
+    INTERPOLATED = 'interpolated'
+
+
 def get_argparser():
     parser = argparse.ArgumentParser(description='Run deep matrix factorization with 2d aneurysm.')
-    parser.add_argument('--mask-rate', type=float, default=None,
-                        help='the expected precentage of matrix entries to be set to zero.')
     parser.add_argument('--algorithm', type=Algorithm,
                         help='the algorithm to use for matrix completion.')
+    parser.add_argument('--technique', type=Technique,
+                        help='the pre-processing technique to use when creating hte matrices for completion.')
+    parser.add_argument('--mask-rate', type=float, default=None,
+                        help='the expected precentage of matrix entries to be set to zero.')
     parser.add_argument('--data-set', type=DataSet,
                         help='the data set in the data dir to use.')
     parser.add_argument('--data-dir', type=Path,
                         help='path to the matrix completion data.')
     parser.add_argument('--save-dir', type=str,
                         help='where to save the figures.')
-    parser.add_argument('--run-matrix-config', type=bool, default=False,
-                        help='run over various test configurations.')
     parser.add_argument('--report-frequency', type=int, default=500,
                         help='the number of epochs to pass before printing a report to the console.')
+    parser.add_argument('--run-all', type=int, default=0,
+                        help='given 1, a mask rate, and a data set run all combinations of the other experiment args.')
 
     # Deep Matrix Factorization options
-    parser.add_argument('--max-epochs', type=int, default=20_000,
+    parser.add_argument('--max-epochs', type=int, default=1_000_000,
                         help='maximum number of epochs.')
-    parser.add_argument('--desired-loss', type=float, default=1e-4,
+    parser.add_argument('--desired-loss', type=float, default=1e-6,
                         help='desired loss for early training termination.')
     parser.add_argument('--num-factors', type=int, default=3,
                         help='number of matrix factors.')
 
-    # Timeframe options
+    # Timeframe options (if technique is Technique.INTERPOLATED)
     parser.add_argument('--grid-density', type=int, default=200,
                         help='the number of points on the side of the interpolation grid.')
-    parser.add_argument('--timeframe', type=int, default=None,
+    parser.add_argument('--timeframe', type=int, default=-1,
                         help='the timeframe to use when the vector field is time dependent.')
-
-    # VelocityByTime options
-    parser.add_argument('--interleaved', dest='interleaved', action='store_true')
-    parser.add_argument('--no-interleaved', dest='interleaved', action='store_false')
-    parser.set_defaults(interleaved=None)
     return parser
 
 
@@ -90,6 +91,19 @@ def num_large_singular_values(matrix, threshold=5e-1):
     return np.sum(np.where(s > threshold, 1, 0))
 
 
+def save_json(filename, d):
+    with open(f'{filename}.json', 'w') as f:
+        json.dump(d, f, indent=4)
+
+
+def record_report_data(report_data, component, epoch, loss, nmae):
+    rd = report_data[component] if component in report_data else {'epoch': [], 'loss': [], 'nmae': []}
+    rd['epoch'].append(epoch)
+    rd['loss'].append(loss)
+    rd['nmae'].append(nmae)
+    report_data[component] = rd
+
+
 def run_timeframe(tf, tf_masked, tf_mask, **args):
     def meets_stop_criteria(epoch, loss):
         return loss < args['desired_loss']
@@ -97,9 +111,12 @@ def run_timeframe(tf, tf_masked, tf_mask, **args):
     def report(reconstructed_matrix, epoch, loss, last_report: bool, component):
         vel = data.interp_griddata(tf_grid.vec_field.coords, reconstructed_matrix, tf.vec_field.coords)
         nmae_against_original = model.norm_mean_abs_error(vel, getattr(tf.vec_field, component), lib=np)
-        print(f'Component: {component}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE (Original): {nmae_against_original:.5e}')
+        print(f'Component: {component}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE: {nmae_against_original:.5e}')
+        record_report_data(report_data, component, epoch, loss, nmae_against_original)
         if last_report:
             print(f'\n*** END {component} ***\n')
+
+    report_data = dict()
 
     save_dir_timeframe = lambda p: f'{args["save_dir"]}/{p}.{tf.time}'
 
@@ -149,6 +166,10 @@ def run_timeframe(tf, tf_masked, tf_mask, **args):
     tf_grid_masked_rec.save(save_dir_timeframe('reconstructed_interpolated'))
     tf_grid_masked_rec.vec_field.interp(coords=tf.vec_field.coords).save(save_dir_timeframe('reconstructed'))
 
+    save_json(save_dir_timeframe('report_data'), report_data)
+
+    return tf_grid_masked_rec
+
 
 def run_velocity_by_time(vbt, vbt_masked, vbt_mask, **args):
     def meets_stop_criteria(epoch, loss):
@@ -161,13 +182,18 @@ def run_velocity_by_time(vbt, vbt_masked, vbt_mask, **args):
                 coords=vbt.coords,
                 **{c: reconstructed_matrix[i::num_components] for i, c in enumerate(vbt.components)}
             )
-            nmaes = {c: model.norm_mean_abs_error(getattr(vbt, c), getattr(vbt_reported, c), lib=np) for c in vbt.components}
-            print(f'Component: all, Epoch: {epoch}, Loss: {loss:.5e},', *(f'NMAE_{c} (Original): {nmae:.5e}' for c, nmae in nmaes.items()))
+            nmaes = {c: model.norm_mean_abs_error(getattr(vbt_reported, c), getattr(vbt, c), lib=np) for c in vbt.components}
+            for c in vbt.components:
+                record_report_data(report_data, c, epoch, loss, nmaes[c])
+            print(f'Component: all, Epoch: {epoch}, Loss: {loss:.5e}, ' + ', '.join(f'NMAE_{c}: {nmae:.5e}' for c, nmae in nmaes.items()))
         else:
             nmae_against_original = model.norm_mean_abs_error(reconstructed_matrix, getattr(vbt, component), lib=np)
-            print(f'Component: {component}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE (Original): {nmae_against_original:.5e}')
+            record_report_data(report_data, component, epoch, loss, nmae_against_original)
+            print(f'Component: {component}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE: {nmae_against_original:.5e}')
         if last_report:
             print(f'\n*** END {"all" if interleaved else component} ***\n')
+    
+    report_data = dict()
 
     plot_time = 0
     interleaved = args['interleaved']
@@ -212,15 +238,20 @@ def run_velocity_by_time(vbt, vbt_masked, vbt_mask, **args):
 
     vbt_rec.save(save_dir('reconstructed'), plot_time=plot_time)
 
+    save_json(save_dir('report_data'), report_data)
+
+    return vbt_rec
+
 
 def run_test(**args):
+    # Select vector field
     ds = args['data_set']
     if ds is DataSet.ANEURYSM:
         time = 0
         tf = data.TimeframeAneurysm(time=time, filepath=args['data_dir'] / DataSet.ANEURYSM.value / f'vel_2Daneu_crop.{time}.csv')
         vbt = data.VelocityByTimeAneurysm(
             coords=tf.vec_field.coords,
-            filepath_vel_by_time=args['data_dir'] / DataSet.ANEURYSM.value / 'my_vel_by_time.csv',
+            filepath_vel_by_time=args['data_dir'] / DataSet.ANEURYSM.value / 'vel_by_time_2Daneu_crop.csv',
         )
     elif ds is DataSet.FUNC1:
         func_x = lambda t, x, y: np.sin(2 * x + 2 * y)
@@ -232,41 +263,64 @@ def run_test(**args):
         func_z = lambda t, x, y, z: np.cos(2 * x - 2 * z)
         vbt = data.velocity_by_time_function_3d(func_x, func_y, func_z, (-2, 2), args['grid_density'])
     
+    # Mask vector field
     mask = model.get_bit_mask(vbt.shape_as_completable(interleaved=False), args['mask_rate'])
     vbt_mask = data.VelocityByTime(coords=vbt.coords, velx_by_time=mask, vely_by_time=mask)
     vbt_masked = vbt.transform(lambda vel: vel * mask, interleaved=False)
 
-    if args['interleaved'] is None:
+    # Select pre-processing technique and algorithm
+    technique = args['technique']
+    save_dir = Path(args['save_dir']) / ds.value / args['algorithm'].value / (f'num_factors{args["num_factors"]}' if args['algorithm'] is Algorithm.DMF else '.') / f'mask_rate{args["mask_rate"]}' / technique.value
+    if technique is Technique.IDENTITY:
+        args['interleaved'] = False
+        args['save_dir'] = save_dir
+        task = lambda: run_velocity_by_time(vbt, vbt_masked, vbt_mask, **args)
+    elif technique is Technique.INTERLEAVED:
+        args['interleaved'] = True
+        args['save_dir'] = save_dir
+        task = lambda: run_velocity_by_time(vbt, vbt_masked, vbt_mask, **args)
+    elif technique is Technique.INTERPOLATED:
+        save_dir = save_dir / f'grid_density{args["grid_density"]}'
         if (t := args['timeframe']) >= 0:
             timeframes = [t]
+            save_dir = save_dir / f'time{t}'
         else:
-            timesframes = range(vbt.timeframes)
-        for t in timeframes:
-            run_timeframe(vbt.timeframe(t), vbt_masked.timeframe(t), vbt_mask.timeframe(t), **args)
-    else:
-        run_velocity_by_time(vbt, vbt_masked, vbt_mask, **args)
+            timeframes = range(vbt.timeframes)
+        args['save_dir'] = save_dir
+        def task():
+            vbt.save(save_dir / 'original')
+            tfs = []
+            for t in timeframes:
+                print(f'***** BEGIN TIME {t} *****')
+                tfs.append(run_timeframe(vbt.timeframe(t), vbt_masked.timeframe(t), vbt_mask.timeframe(t), **args))
+                print(f'***** END TIME {t} *****')
+            vbt_rec = vbt.__class__(coords=vbt.coords, vec_fields=[tf.vec_field.interp(coords=vbt.coords) for tf in tfs])
+            vbt_rec.save(save_dir / 'reconstructed')
+            return vbt_rec
+
+    # Create save_dir
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    # Run algorithm
+    vbt_rec = task()
+    
+    # Record final NMAE results
+    nmaes = {c: model.norm_mean_abs_error(getattr(vbt_rec, c), getattr(vbt, c), lib=np) for c in vbt.components}
+    save_json(save_dir / 'nmae', nmaes)
 
 
 if __name__ == '__main__':
     args = get_argparser().parse_args().__dict__
-
-    if args['run_matrix_config']:
-        config_values = OrderedDict(
-            mask_rate=[0.3, 0.5, 0.7, 0.9],
+    if args['run_all'] == 1:
+        other_args = OrderedDict(
             num_factors=[2, 3, 4, 5],
-            grid_density = [100, 200, 300, 400, 500]
+            grid_density=[100, 200, 300, 400, 500],
+            algorithm=list(Algorithm),
+            technique=list(Technique)
         )
-        config_values_keys = config_values.keys()
-        save_dir = args['save_dir']
-        for params in itertools.product(*config_values.values()):
-            folder_name = f'{save_dir}/'
-            for k, p in zip(config_values_keys, params):
+        for params in itertools.product(*other_args.values()):
+            for k, p in zip(other_args.keys(), params):
                 args[k] = p
-                folder_name += f'{k}_{p}__'
-            os.mkdir(folder_name)
-            args['save_dir'] = folder_name
-            with open(f'{folder_name}/config.json', 'w') as f:
-                json.dump(args, f, indent=2)
             run_test(**args)
     else:
         run_test(**args)

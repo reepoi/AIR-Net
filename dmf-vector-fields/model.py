@@ -273,7 +273,7 @@ def iterated_soft_thresholding(masked_matrix, mask, err=1e-6, normfac=1, insweep
 
     loss = loss_func(reconstructed_matrix, lam)
 
-    e = 1
+    e = 0
     while lam > lam_init * tol:
         for _ in range(insweep):
             loss_prev = loss
