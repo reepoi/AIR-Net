@@ -112,7 +112,7 @@ def run_timeframe(tf, tf_masked, tf_mask, **args):
         vel = data.interp_griddata(tf_grid.vec_field.coords, reconstructed_matrix, tf.vec_field.coords)
         nmae_against_original = model.norm_mean_abs_error(vel, getattr(tf.vec_field, component), lib=np)
         print(f'Component: {component}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE: {nmae_against_original:.5e}')
-        record_report_data(report_data, component, epoch, loss, nmae_against_original)
+        record_report_data(report_data, component, epoch, loss.item(), nmae_against_original)
         if last_report:
             print(f'\n*** END {component} ***\n')
 
@@ -184,11 +184,11 @@ def run_velocity_by_time(vbt, vbt_masked, vbt_mask, **args):
             )
             nmaes = {c: model.norm_mean_abs_error(getattr(vbt_reported, c), getattr(vbt, c), lib=np) for c in vbt.components}
             for c in vbt.components:
-                record_report_data(report_data, c, epoch, loss, nmaes[c])
+                record_report_data(report_data, c, epoch, loss.item(), nmaes[c])
             print(f'Component: all, Epoch: {epoch}, Loss: {loss:.5e}, ' + ', '.join(f'NMAE_{c}: {nmae:.5e}' for c, nmae in nmaes.items()))
         else:
             nmae_against_original = model.norm_mean_abs_error(reconstructed_matrix, getattr(vbt, component), lib=np)
-            record_report_data(report_data, component, epoch, loss, nmae_against_original)
+            record_report_data(report_data, component, epoch, loss.item(), nmae_against_original)
             print(f'Component: {component}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE: {nmae_against_original:.5e}')
         if last_report:
             print(f'\n*** END {"all" if interleaved else component} ***\n')
@@ -312,14 +312,20 @@ def run_test(**args):
 if __name__ == '__main__':
     args = get_argparser().parse_args().__dict__
     if args['run_all'] == 1:
-        other_args = OrderedDict(
-            num_factors=[2, 3, 4, 5],
+        ist_args = OrderedDict(
             grid_density=[100, 200, 300, 400, 500],
-            algorithm=list(Algorithm),
+            algorithm=[Algorithm.IST],
             technique=list(Technique)
         )
-        for params in itertools.product(*other_args.values()):
-            for k, p in zip(other_args.keys(), params):
+        for params in itertools.product(*ist_args.values()):
+            for k, p in zip(ist_args.keys(), params):
+                args[k] = p
+            run_test(**args)
+        dmf_args = ist_args
+        dmf_args['algorithm'] = [Algorithm.DMF]
+        dmf_args['num_factors'] = [2, 3, 4, 5]
+        for params in itertools.product(*dmf_args.values()):
+            for k, p in zip(dmf_args.keys(), params):
                 args[k] = p
             run_test(**args)
     else:
