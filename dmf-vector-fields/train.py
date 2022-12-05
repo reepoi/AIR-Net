@@ -52,6 +52,8 @@ def get_argparser():
                         help='the number of epochs to pass before printing a report to the console.')
     parser.add_argument('--run-all', type=int, default=0,
                         help='given 1, a mask rate, and a data set run all combinations of the other experiment args.')
+    parser.add_argument('--min-time-identity-interleaved', type=int, default=2,
+                        help='the minimum number of times defined by the vector field to use techinques IDENTITY or INTERPOLATED.')
 
     # Deep Matrix Factorization options
     parser.add_argument('--max-epochs', type=int, default=1_000_000,
@@ -243,6 +245,17 @@ def run_velocity_by_time(vbt, vbt_masked, vbt_mask, **args):
     return vbt_rec
 
 
+def skip_test(vbt, **args):
+    tq = args['technique']
+    if tq in {Technique.IDENTITY, Technique.INTERLEAVED}:
+        if vbt.timeframes < args['min_time_identity_interleaved']:
+            return 'data set has too few timeframes. See --min-time-identity-interleaved'
+    if tq is Technique.INTERPOLATED:
+        if len(vbt.components) >= 3:
+            return 'data sets with 3 or more spatial dimensions not supported by Technique.INTERPOLATED'
+    return ''
+
+
 def run_test(**args):
     # Select vector field
     ds = args['data_set']
@@ -262,6 +275,11 @@ def run_test(**args):
         func_y = lambda t, x, y, z: np.cos(2 * x - 2 * y)
         func_z = lambda t, x, y, z: np.cos(2 * x - 2 * z)
         vbt = data.velocity_by_time_function_3d(func_x, func_y, func_z, (-2, 2), args['grid_density'])
+    
+    # Check if test should be skipped
+    if (msg := skip_test(vbt, **args)) != '':
+        print(f'TEST SKIPPED: {msg}.')
+        return
     
     # Mask vector field
     mask = model.get_bit_mask(vbt.shape_as_completable(interleaved=False), args['mask_rate'])
