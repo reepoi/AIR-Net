@@ -339,9 +339,12 @@ if __name__ == '__main__':
             for k, p in zip(ist_args.keys(), params):
                 args[k] = p
             run_test(**args)
-        dmf_args = ist_args
-        dmf_args['algorithm'] = [Algorithm.DMF]
-        dmf_args['num_factors'] = [2, 3, 4, 5]
+        dmf_args = OrderedDict(
+            grid_density=[100, 200, 300, 400, 500],
+            num_factors=[2, 3, 4, 5],
+            algorithm=[Algorithm.DMF],
+            technique=list(Technique)
+        )
         for params in itertools.product(*dmf_args.values()):
             for k, p in zip(dmf_args.keys(), params):
                 args[k] = p

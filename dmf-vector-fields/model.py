@@ -252,7 +252,7 @@ def iterated_soft_thresholding(masked_matrix, mask, err=1e-6, normfac=1, insweep
     References
     ----------
     .. [1] Majumdar, A.: Singular Value Shrinkage. In: Compressed Sensing for Engineers.
-       pp. 110–119. CRC Press/Taylor &amp; Francis, Boca Raton, FL (2019). 
+       pp. 110-119. CRC Press/Taylor &amp; Francis, Boca Raton, FL (2019). 
     """
     shape = masked_matrix.shape
 
