@@ -14,14 +14,13 @@ RUN apt -y install build-essential
 
 RUN apt-get -y install git
 
-# Install OpenCV requirements
-RUN apt-get install ffmpeg libsm6 libxext6  -y
-
 LABEL taost=taost
 
-COPY . /AIR-Net/
+COPY . /root/workspace/
 
-RUN cd /AIR-Net/ && pip3 install -r requirements.txt
+RUN mkdir /root/workspace/out/
+
+RUN cd /root/workspace/ && pip3 install -r requirements.txt
 
 RUN pip install torch==1.9.0+cu111 torchvision==0.10.0+cu111 torchaudio==0.9.0 -f https://download.pytorch.org/whl/torch_stable.html
 
@@ -30,5 +29,3 @@ ENV CUDA_VISIBLE_DEVICES=all
 ENV PORT=8811
 
 EXPOSE 8811
-
-# CMD jupyter notebook --no-browser --allow-root --ip 0.0.0.0 --port $PORT

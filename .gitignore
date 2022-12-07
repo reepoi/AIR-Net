@@ -4,3 +4,5 @@ __pycache__
 !.ipynb_checkpoints
 wandb
 cropped_2D_aneurysm
+out
+dmf-vector-fields/data
