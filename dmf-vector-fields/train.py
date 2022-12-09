@@ -274,9 +274,9 @@ def run_test(**args):
     elif ds is DataSet.DOUBLE_GYRE:
         # source: https://shaddenlab.berkeley.edu/uploads/LCS-tutorial/examples.html#Sec7.1
         pi = np.pi
-        A = 0.1
+        A = 0.25
         omega = 2 * pi / 10
-        epsilon = 0.25
+        epsilon = 0.1
         a = lambda t: epsilon * np.sin(omega * t)
         b = lambda t: 1 - 2 * epsilon * np.sin(omega * t)
         f = lambda x, t: a(t) * x**2 + b(t) * x
