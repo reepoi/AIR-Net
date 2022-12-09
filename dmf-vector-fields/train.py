@@ -357,14 +357,14 @@ if __name__ == '__main__':
                 args['technique'] = Technique.IDENTITY
                 run_test(**args)
 
+                # Run interleaved
+                args['technique'] = Technique.INTERLEAVED
+                run_test(**args)
+
                 # Run interpolated
                 args['technique'] = Technique.INTERPOLATED
                 for gd in grid_density:
                     args['grid_density'] = gd
                     run_test(**args)
-
-                # Run interleaved
-                args['technique'] = Technique.INTERLEAVED
-                run_test(**args)
     else:
         run_test(**args)
