@@ -21,11 +21,12 @@ class DataSet(enum.Enum):
     ANEURYSM = 'aneurysm'
     FUNC1 = 'func1'
     FUNC2 = 'func2'
+    DOUBLE_GYRE = 'double-gyre'
 
 
 class Algorithm(enum.Enum):
-    DMF = 'dmf'
     IST = 'ist'
+    DMF = 'dmf'
 
 
 class Technique(enum.Enum):
@@ -44,9 +45,9 @@ def get_argparser():
                         help='the expected precentage of matrix entries to be set to zero.')
     parser.add_argument('--data-set', type=DataSet,
                         help='the data set in the data dir to use.')
-    parser.add_argument('--data-dir', type=Path,
+    parser.add_argument('--data-dir', type=Path, default=Path('data'),
                         help='path to the matrix completion data.')
-    parser.add_argument('--save-dir', type=str,
+    parser.add_argument('--save-dir', type=str, default=Path('..') / 'out' / 'output',
                         help='where to save the figures.')
     parser.add_argument('--report-frequency', type=int, default=500,
                         help='the number of epochs to pass before printing a report to the console.')
@@ -122,15 +123,15 @@ def run_timeframe(tf, tf_masked, tf_mask, **args):
 
     save_dir_timeframe = lambda p: f'{args["save_dir"]}/{p}.{tf.time}'
 
-    tf.save(save_dir_timeframe('original'))
+    # tf.save(save_dir_timeframe('original'))
     tf_grid = tf.as_completable(grid_density=args['grid_density'])
-    tf_grid.save(save_dir_timeframe('interpolated'))
+    # tf_grid.save(save_dir_timeframe('interpolated'))
 
     rows, cols = tf_grid.vec_field.velx.shape
 
-    tf_masked.save(save_dir_timeframe('masked'))
+    # tf_masked.save(save_dir_timeframe('masked'))
     tf_masked_grid = tf_masked.as_completable(grid_density=args['grid_density'])
-    tf_masked_grid.save(save_dir_timeframe('masked_interpolated'))
+    # tf_masked_grid.save(save_dir_timeframe('masked_interpolated'))
 
     print(f'Mask Rate: {args["mask_rate"]}')
 
@@ -201,8 +202,8 @@ def run_velocity_by_time(vbt, vbt_masked, vbt_mask, **args):
     interleaved = args['interleaved']
     save_dir = lambda p: f'{args["save_dir"]}/{p}'
 
-    vbt.save(save_dir('original'), plot_time=plot_time)
-    vbt_masked.save(save_dir('masked'), plot_time=plot_time)
+    # vbt.save(save_dir('original'), plot_time=plot_time)
+    # vbt_masked.save(save_dir('masked'), plot_time=plot_time)
 
     print(f'Mask Rate: {args["mask_rate"]}')
 
@@ -269,7 +270,21 @@ def run_test(**args):
     elif ds is DataSet.FUNC1:
         func_x = lambda t, x, y: np.sin(2 * x + 2 * y)
         func_y = lambda t, x, y: np.cos(2 * x - 2 * y)
-        vbt = data.velocity_by_time_function(func_x, func_y, (-2, 2), args['grid_density'])
+        vbt = data.velocity_by_time_function(func_x, func_y, [(-2, 2)] * 2, args['grid_density'])
+    elif ds is DataSet.DOUBLE_GYRE:
+        # source: https://shaddenlab.berkeley.edu/uploads/LCS-tutorial/examples.html#Sec7.1
+        pi = np.pi
+        A = 0.1
+        omega = 2 * pi / 10
+        epsilon = 0.25
+        a = lambda t: epsilon * np.sin(omega * t)
+        b = lambda t: 1 - 2 * epsilon * np.sin(omega * t)
+        f = lambda x, t: a(t) * x**2 + b(t) * x
+        dfdx = lambda x, t: a(t) * 2 * x + b(t)
+        # psi = lambda t, x, y: A * np.sin(pi * f(x, t)) * np.sin(pi * y)
+        u = lambda t, x, y: -pi * A * np.sin(pi * f(x, t)) * np.cos(pi * y)
+        v = lambda t, x, y: pi * A * np.cos(pi * f(x, t)) * np.sin(pi * y) * dfdx(x, t)
+        vbt = data.velocity_by_time_function(u, v, [(0, 2), (0, 1)], args['grid_density'], times=range(11))
     elif ds is DataSet.FUNC2:
         func_x = lambda t, x, y, z: np.sin(2 * x + 2 * y)
         func_y = lambda t, x, y, z: np.cos(2 * x - 2 * y)
@@ -330,24 +345,26 @@ def run_test(**args):
 if __name__ == '__main__':
     args = get_argparser().parse_args().__dict__
     if args['run_all'] == 1:
-        ist_args = OrderedDict(
-            grid_density=[100, 200, 300, 400, 500],
-            algorithm=[Algorithm.IST],
-            technique=list(Technique)
-        )
-        for params in itertools.product(*ist_args.values()):
-            for k, p in zip(ist_args.keys(), params):
-                args[k] = p
-            run_test(**args)
-        dmf_args = OrderedDict(
-            grid_density=[100, 200, 300, 400, 500],
-            num_factors=[2, 3, 4, 5],
-            algorithm=[Algorithm.DMF],
-            technique=list(Technique)
-        )
-        for params in itertools.product(*dmf_args.values()):
-            for k, p in zip(dmf_args.keys(), params):
-                args[k] = p
-            run_test(**args)
+        grid_density = [100, 200, 300, 400, 500]
+        # for a in [Algorithm.DMF]:
+        for a in Algorithm:
+            args['algorithm'] = a
+            num_factors = [2, 3, 4, 5] if a is Algorithm.DMF else [1]
+            for nf in num_factors:
+                args['num_factors'] = nf
+
+                # Run identity
+                args['technique'] = Technique.IDENTITY
+                run_test(**args)
+
+                # Run interpolated
+                args['technique'] = Technique.INTERPOLATED
+                for gd in grid_density:
+                    args['grid_density'] = gd
+                    run_test(**args)
+
+                # Run interleaved
+                args['technique'] = Technique.INTERLEAVED
+                run_test(**args)
     else:
         run_test(**args)

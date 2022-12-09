@@ -582,7 +582,7 @@ def velocity_by_time_function(func_x, func_y, grid_bounds, grid_density, times=N
         The function defining the y-component of a vector field. It
         must be vectorized with respect to its spatial coordinates (x, y).
     
-    grid_bounds: tuple(float, float)
+    grid_bounds: list(tuple(float, float))
         The bounds of the grid to evaluate the vector field functions on.
         The grid is square.
     
@@ -598,9 +598,10 @@ def velocity_by_time_function(func_x, func_y, grid_bounds, grid_density, times=N
     """
     if times is None:
         times = [0]
-    b_x, b_y = grid_bounds
-    grid_line = np.linspace(b_x, b_y, grid_density)
-    mesh = np.meshgrid(grid_line, grid_line)
+    linspace_args = lambda gb: (gb[0], gb[1], grid_density)
+    grid_line0 = np.linspace(*linspace_args(grid_bounds[0]))
+    grid_line1 = np.linspace(*linspace_args(grid_bounds[1]))
+    mesh = np.meshgrid(grid_line0, grid_line1)
     coords = Coordinates(*mesh).ravel()
     vec_fields = [VectorField(coords=coords, velx=func_x(t, *mesh), vely=func_y(t, *mesh)) for t in times]
     return VelocityByTime(coords=coords, vec_fields=vec_fields)
