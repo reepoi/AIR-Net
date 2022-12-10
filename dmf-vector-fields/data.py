@@ -726,4 +726,4 @@ def interp_griddata(coords: Coordinates, func_values, new_coords: Coordinates, *
     func_values = func_values.ravel()
     xy = coords.x, coords.y
     new_xy = new_coords.x, new_coords.y
-    return interp.griddata(xy, func_values, new_xy, method='linear', **kwargs)
+    return interp.griddata(xy, func_values, new_xy, method='linear', **kwargs).astype(np.float32)

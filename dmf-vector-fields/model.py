@@ -282,6 +282,7 @@ def iterated_soft_thresholding(masked_matrix, mask, err=1e-6, normfac=1, insweep
             reconstructed_matrix += mask * (masked_matrix - mask * reconstructed_matrix) / alpha
 
             U, S, Vh = torch.linalg.svd(reconstructed_matrix.reshape(shape), full_matrices=False)
+
             S = soft_threshold(S, lam / (2 * alpha))
             reconstructed_matrix = torch.matmul(U * S, Vh).ravel()
 

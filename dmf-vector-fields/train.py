@@ -275,7 +275,7 @@ def run_test(**args):
     elif ds is DataSet.FUNC1:
         func_x = lambda t, x, y: np.sin(2 * x + 2 * y)
         func_y = lambda t, x, y: np.cos(2 * x - 2 * y)
-        vbt = data.velocity_by_time_function(func_x, func_y, [(-2, 2)] * 2, args['grid_density'])
+        vbt = data.velocity_by_time_function(func_x, func_y, [(-2, 2)] * 2, grid_density=100)
     elif ds is DataSet.DOUBLE_GYRE:
         # source: https://shaddenlab.berkeley.edu/uploads/LCS-tutorial/examples.html#Sec7.1
         pi = np.pi
@@ -289,12 +289,12 @@ def run_test(**args):
         # psi = lambda t, x, y: A * np.sin(pi * f(x, t)) * np.sin(pi * y)
         u = lambda t, x, y: -pi * A * np.sin(pi * f(x, t)) * np.cos(pi * y)
         v = lambda t, x, y: pi * A * np.cos(pi * f(x, t)) * np.sin(pi * y) * dfdx(x, t)
-        vbt = data.velocity_by_time_function(u, v, [(0, 2), (0, 1)], args['grid_density'], times=range(11))
+        vbt = data.velocity_by_time_function(u, v, [(0, 2), (0, 1)], grid_density=100, times=range(11))
     elif ds is DataSet.FUNC2:
         func_x = lambda t, x, y, z: np.sin(2 * x + 2 * y)
         func_y = lambda t, x, y, z: np.cos(2 * x - 2 * y)
         func_z = lambda t, x, y, z: np.cos(2 * x - 2 * z)
-        vbt = data.velocity_by_time_function_3d(func_x, func_y, func_z, (-2, 2), args['grid_density'])
+        vbt = data.velocity_by_time_function_3d(func_x, func_y, func_z, (-2, 2), grid_density=100)
     
     # Check if test should be skipped
     if (msg := skip_test(vbt, **args)) != '':
