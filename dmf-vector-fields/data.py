@@ -2,13 +2,10 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import torch
+from settings import torch, device
 import scipy.interpolate as interp
 
 import plots
-
-
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
 @dataclass(frozen=True)
@@ -726,4 +723,4 @@ def interp_griddata(coords: Coordinates, func_values, new_coords: Coordinates, *
     func_values = func_values.ravel()
     xy = coords.x, coords.y
     new_xy = new_coords.x, new_coords.y
-    return interp.griddata(xy, func_values, new_xy, method='linear', **kwargs).astype(np.float32)
+    return interp.griddata(xy, func_values, new_xy, method='cubic', **kwargs)
