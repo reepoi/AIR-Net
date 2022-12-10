@@ -142,7 +142,7 @@ def run_timeframe(tf, tf_masked, tf_mask, **args):
 
     training_names = iter(tf.vec_field.components)
     mask = tf_mask.as_completable(grid_density=args['grid_density']).vec_field.velx
-    mask_torch = no_requires_grad(torch.tensor(mask).to(device))
+    mask_torch = no_requires_grad(torch.tensor(mask, dtype=torch.float32).to(device))
     if args['algorithm'] is Algorithm.DMF:
         def trainer(vel):
             name = next(training_names)
@@ -215,7 +215,7 @@ def run_velocity_by_time(vbt, vbt_masked, vbt_mask, **args):
     training_names = iter(vbt.components)
     mask = vbt_mask.completable_matrices(interleaved=interleaved)
     mask = mask if interleaved else mask[0]
-    mask_torch = no_requires_grad(torch.tensor(mask).to(device))
+    mask_torch = no_requires_grad(torch.tensor(mask, dtype=torch.float32).to(device))
     if args['algorithm'] is Algorithm.DMF:
         def trainer(vel):
             name = next(training_names)
