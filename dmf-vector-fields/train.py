@@ -94,6 +94,11 @@ def num_large_singular_values(matrix, threshold=5e-1):
     return np.sum(np.where(s > threshold, 1, 0))
 
 
+def no_requires_grad(tensor):
+    tensor.requires_grad = False
+    return tensor
+
+
 def save_json(filename, d):
     with open(f'{filename}.json', 'w') as f:
         json.dump(d, f, indent=4)
@@ -137,8 +142,8 @@ def run_timeframe(tf, tf_masked, tf_mask, **args):
 
     training_names = iter(tf.vec_field.components)
     mask = tf_mask.as_completable(grid_density=args['grid_density']).vec_field.velx
+    mask_torch = no_requires_grad(torch.tensor(mask).to(device))
     if args['algorithm'] is Algorithm.DMF:
-        mask_torch = torch.tensor(mask).to(device)
         def trainer(vel):
             name = next(training_names)
             return model.train(
@@ -159,12 +164,12 @@ def run_timeframe(tf, tf_masked, tf_mask, **args):
             name = next(training_names)
             return model.iterated_soft_thresholding(
                 masked_matrix=vel,
-                mask=mask,
+                mask=mask_torch,
                 normfac=np.max(mask),
                 report_frequency=args['report_frequency'],
                 report=lambda *args: report(*args, component=name)
             )
-        tf_grid_masked_rec = tf_masked_grid.transform(trainer)
+        tf_grid_masked_rec = tf_masked_grid.numpy_to_torch().transform(no_requires_grad).transform(trainer).torch_to_numpy()
 
     tf_grid_masked_rec.save(save_dir_timeframe('reconstructed_interpolated'))
     tf_grid_masked_rec.vec_field.interp(coords=tf.vec_field.coords).save(save_dir_timeframe('reconstructed'))
@@ -210,8 +215,8 @@ def run_velocity_by_time(vbt, vbt_masked, vbt_mask, **args):
     training_names = iter(vbt.components)
     mask = vbt_mask.completable_matrices(interleaved=interleaved)
     mask = mask if interleaved else mask[0]
+    mask_torch = no_requires_grad(torch.tensor(mask).to(device))
     if args['algorithm'] is Algorithm.DMF:
-        mask_torch = torch.tensor(mask).to(device)
         def trainer(vel):
             name = next(training_names)
             return model.train(
@@ -233,11 +238,11 @@ def run_velocity_by_time(vbt, vbt_masked, vbt_mask, **args):
             name = next(training_names)
             return model.iterated_soft_thresholding(
                 masked_matrix=vel,
-                mask=mask,
+                mask=mask_torch,
                 report_frequency=args['report_frequency'],
                 report=lambda *args: report(*args, component=name)
             )
-        vbt_rec = vbt_masked.transform(trainer, interleaved=interleaved)
+        vbt_rec = vbt_masked.numpy_to_torch().transform(no_requires_grad).transform(trainer, interleaved=interleaved).torch_to_numpy()
 
     vbt_rec.save(save_dir('reconstructed'), plot_time=plot_time)
 

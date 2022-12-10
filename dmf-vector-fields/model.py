@@ -122,7 +122,7 @@ def get_bit_mask(shape, rate):
     -------
         An ndarray.
     """
-    return np.array(rng.random(shape) > rate, dtype=int)
+    return np.array(rng.random(shape) > rate, dtype=np.float32)
 
 
 def train(max_epochs, matrix_factor_dimensions, masked_matrix, mask,
@@ -254,21 +254,23 @@ def iterated_soft_thresholding(masked_matrix, mask, err=1e-6, normfac=1, insweep
     .. [1] Majumdar, A.: Singular Value Shrinkage. In: Compressed Sensing for Engineers.
        pp. 110-119. CRC Press/Taylor &amp; Francis, Boca Raton, FL (2019). 
     """
+    to_report = lambda x: x.detach().cpu().numpy()
+
     shape = masked_matrix.shape
 
     # Vectorize the matrices
     mask = mask.ravel()
     masked_matrix = masked_matrix.ravel()
-    reconstructed_matrix = np.zeros_like(masked_matrix)
+    reconstructed_matrix = torch.zeros_like(masked_matrix).to(device)
 
     alpha = 1.1 * normfac
     # lam = lambda
-    lam_init = decfac * np.max(np.abs(mask * masked_matrix))
-    lam = np.copy(lam_init)
+    lam_init = decfac * torch.max(torch.abs(mask * masked_matrix)).item()
+    lam = lam_init
 
-    l2 = lambda v: np.linalg.norm(v, ord=2)
-    l1 = lambda v: np.linalg.norm(v, ord=1)
-    constraint = lambda RCm: l2(masked_matrix - np.matmul(mask, RCm))
+    l2 = lambda v: torch.linalg.norm(v)
+    l1 = lambda v: torch.linalg.norm(v, ord=1)
+    constraint = lambda RCm: l2(masked_matrix - torch.matmul(mask, RCm))
     loss_func = lambda RCm, lam: constraint(RCm) + lam * l1(RCm)
 
     loss = loss_func(reconstructed_matrix, lam)
@@ -279,18 +281,18 @@ def iterated_soft_thresholding(masked_matrix, mask, err=1e-6, normfac=1, insweep
             loss_prev = loss
             reconstructed_matrix += mask * (masked_matrix - mask * reconstructed_matrix) / alpha
 
-            U, S, Vh = np.linalg.svd(reconstructed_matrix.reshape(shape), full_matrices=False)
+            U, S, Vh = torch.linalg.svd(reconstructed_matrix.reshape(shape), full_matrices=False)
             S = soft_threshold(S, lam / (2 * alpha))
-            reconstructed_matrix = np.matmul(U * S, Vh).ravel()
+            reconstructed_matrix = torch.matmul(U * S, Vh).ravel()
 
             loss = loss_func(reconstructed_matrix, lam)
 
             if e % report_frequency == 0:
-                report(reconstructed_matrix.reshape(shape), e, loss, False)
+                report(to_report(reconstructed_matrix.reshape(shape)), e, loss, False)
 
             e += 1
 
-            if np.abs(loss - loss_prev) / np.abs(loss + loss_prev) < tol:
+            if torch.abs(loss - loss_prev) / torch.abs(loss + loss_prev) < tol:
                 break
             
         if constraint(reconstructed_matrix) / 2 < err:
@@ -298,10 +300,10 @@ def iterated_soft_thresholding(masked_matrix, mask, err=1e-6, normfac=1, insweep
 
         lam *= decfac
 
-    report(reconstructed_matrix.reshape(shape), e, loss, True)
+    report(to_report(reconstructed_matrix.reshape(shape)), e, loss, True)
 
     return reconstructed_matrix.reshape(shape)
 
 
 def soft_threshold(matrix, threshold):
-    return np.sign(matrix) * np.maximum(0, np.abs(matrix) - threshold)
+    return torch.sign(matrix) * torch.maximum(torch.zeros_like(matrix).to(device), torch.abs(matrix) - threshold)
