@@ -129,8 +129,6 @@ def run_timeframe(tf, tf_masked, tf_mask, **args):
     tf_grid = tf.as_completable(grid_density=args['grid_density'])
     # tf_grid.save(save_dir_timeframe('interpolated'))
 
-    rows, cols = tf_grid.vec_field.velx.shape
-
     # tf_masked.save(save_dir_timeframe('masked'))
     tf_masked_grid = tf_masked.as_completable(grid_density=args['grid_density'])
     # tf_masked_grid.save(save_dir_timeframe('masked_interpolated'))
@@ -152,8 +150,11 @@ def run_timeframe(tf, tf_masked, tf_mask, **args):
                 report_frequency=args['report_frequency'],
                 report=lambda *args: report(*args, component=name)
             )
-        matrix_factor_dimensions = [model.Shape(rows=rows, cols=rows) for _ in range(args['num_factors'] - 1)]
-        matrix_factor_dimensions.append(model.Shape(rows=rows, cols=cols))
+        rows, cols = tf_grid.vec_field.velx.shape
+        min_dim = min(rows, cols)
+        matrix_factor_dimensions = [model.Shape(rows=rows, cols=min_dim)]
+        matrix_factor_dimensions += [model.Shape(rows=min_dim, cols=min_dim) for _ in range(1, args['num_factors'] - 1)]
+        matrix_factor_dimensions.append(model.Shape(rows=min_dim, cols=cols))
         print(matrix_factor_dimensions)
         tf_grid_masked_rec = tf_masked_grid.numpy_to_torch().transform(trainer).torch_to_numpy()
     elif args['algorithm'] is Algorithm.IST:
@@ -226,8 +227,10 @@ def run_velocity_by_time(vbt, vbt_masked, vbt_mask, **args):
                 report=lambda *args: report(*args, component=name)
             )
         rows, cols = vbt.shape_as_completable(interleaved=interleaved)
-        matrix_factor_dimensions = [model.Shape(rows=rows, cols=rows) for _ in range(args['num_factors'] - 1)]
-        matrix_factor_dimensions.append(model.Shape(rows=rows, cols=cols))
+        min_dim = min(rows, cols)
+        matrix_factor_dimensions = [model.Shape(rows=rows, cols=min_dim)]
+        matrix_factor_dimensions += [model.Shape(rows=min_dim, cols=min_dim) for _ in range(1, args['num_factors'] - 1)]
+        matrix_factor_dimensions.append(model.Shape(rows=min_dim, cols=cols))
         print(matrix_factor_dimensions)
         vbt_rec = vbt_masked.numpy_to_torch().transform(trainer, interleaved=interleaved).torch_to_numpy()
     elif args['algorithm'] is Algorithm.IST:
@@ -259,6 +262,7 @@ def skip_test(vbt, **args):
     return ''
 
 
+mask = None
 def run_test(**args):
     # Select vector field
     ds = args['data_set']
@@ -299,7 +303,10 @@ def run_test(**args):
         return
     
     # Mask vector field
-    mask = model.get_bit_mask(vbt.shape_as_completable(interleaved=False), args['mask_rate'])
+    # The mask should be created once so that is the same for all experiments
+    global mask
+    if mask is None:
+        mask = model.get_bit_mask(vbt.shape_as_completable(interleaved=False), args['mask_rate'])
     vbt_mask = data.VelocityByTime(coords=vbt.coords, velx_by_time=mask, vely_by_time=mask)
     vbt_masked = vbt.transform(lambda vel: vel * mask, interleaved=False)
 
@@ -347,9 +354,8 @@ def run_test(**args):
 if __name__ == '__main__':
     args = get_argparser().parse_args().__dict__
     if args['run_all'] == 1:
-        grid_density = [100, 200, 300, 400, 500]
-        # for a in [Algorithm.DMF]:
-        for a in Algorithm:
+        for a in [Algorithm.DMF]:
+        # for a in Algorithm:
             args['algorithm'] = a
             num_factors = [2, 3, 4, 5] if a is Algorithm.DMF else [1]
             for nf in num_factors:
@@ -363,8 +369,11 @@ if __name__ == '__main__':
                 args['technique'] = Technique.INTERLEAVED
                 run_test(**args)
 
-                # Run interpolated
-                args['technique'] = Technique.INTERPOLATED
+            # Run interpolated
+            args['technique'] = Technique.INTERPOLATED
+            for nf in num_factors:
+                args['num_factors'] = nf
+                grid_density = [100, 200, 300, 400, 500]
                 for gd in grid_density:
                     args['grid_density'] = gd
                     run_test(**args)
