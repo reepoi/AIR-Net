@@ -5,8 +5,6 @@ import matplotlib.pyplot as plt
 from settings import torch, device
 import scipy.interpolate as interp
 
-import plots
-
 
 @dataclass(frozen=True)
 class Coordinates:
