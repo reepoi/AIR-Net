@@ -279,20 +279,9 @@ def iterated_soft_thresholding(masked_matrix, mask, err=1e-6, normfac=1, insweep
             loss_prev = loss
             reconstructed_matrix += mask * (masked_matrix - mask * reconstructed_matrix) / alpha
 
-            try:
-                U, S, Vh = torch.linalg.svd(reconstructed_matrix.reshape(shape), full_matrices=False)
-            except RuntimeError:
-                torch_svd_failures += 1
-                print(f'PyTorch SVD failed! Trying NumPy SVD. Number of failures: {torch_svd_failures}')
-                # Use NumPy SVD because PyTorch's SVD algorithm threw this error:
-                # RuntimeError: svd_cuda: For batch 0: U(101,101) is zero, singular U.
-                U, S, Vh = map(
-                    lambda t: torch.tensor(t).to(device),
-                    np.linalg.svd(reconstructed_matrix.reshape(shape).detach().cpu().numpy(), full_matrices=False)
-                )
-
-
+            U, S, Vh = torch.linalg.svd(reconstructed_matrix.reshape(shape), full_matrices=False)
             S = soft_threshold(S, lam / (2 * alpha))
+
             reconstructed_matrix = torch.matmul(U * S, Vh).ravel()
 
             loss = loss_func(reconstructed_matrix, lam)

@@ -136,7 +136,7 @@ def run_timeframe(tf, tf_masked, tf_mask, **args):
     print(f'Mask Rate: {args["mask_rate"]}')
 
     training_names = iter(tf.vec_field.components)
-    mask = tf_mask.as_completable(grid_density=args['grid_density']).vec_field.velx
+    mask = tf_mask.as_completable(grid_density=args['grid_density'], method='linear').vec_field.velx
     mask_torch = no_requires_grad(torch.tensor(mask, dtype=torch.float64).to(device))
     if args['algorithm'] is Algorithm.DMF:
         def trainer(vel):
@@ -354,7 +354,7 @@ def run_test(**args):
 if __name__ == '__main__':
     args = get_argparser().parse_args().__dict__
     if args['run_all'] == 1:
-        for a in [Algorithm.DMF]:
+        for a in [Algorithm.IST, Algorithm.DMF]:
         # for a in Algorithm:
             args['algorithm'] = a
             num_factors = [2, 3, 4, 5] if a is Algorithm.DMF else [1]

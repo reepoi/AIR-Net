@@ -184,7 +184,7 @@ class VectorField:
         return self.__class__(coords, *new_components)
 
 
-    def as_completable(self, grid_density):
+    def as_completable(self, grid_density, **kwargs):
         """
         Returns a representation of a VectorField that can be
         given to a matrix completion algorithm.
@@ -193,7 +193,7 @@ class VectorField:
         -------
             ``VectorField``
         """
-        return self.interp(grid_density=grid_density, fill_value=0)
+        return self.interp(grid_density=grid_density, fill_value=0, **kwargs)
     
 
     def transform(self, transform_func, apply_to_coords=False):
@@ -280,7 +280,7 @@ class Timeframe:
         raise NotImplementedError('This should be overriden.')
 
 
-    def as_completable(self, grid_density):
+    def as_completable(self, grid_density, **kwargs):
         """
         Returns a tuple of velx and vely.
 
@@ -291,7 +291,7 @@ class Timeframe:
         return self.__class__(
             time=self.time,
             filepath=None,
-            vec_field=self.vec_field.as_completable(grid_density)
+            vec_field=self.vec_field.as_completable(grid_density, **kwargs)
         )
     
 
@@ -721,4 +721,5 @@ def interp_griddata(coords: Coordinates, func_values, new_coords: Coordinates, *
     func_values = func_values.ravel()
     xy = coords.x, coords.y
     new_xy = new_coords.x, new_coords.y
-    return interp.griddata(xy, func_values, new_xy, method='cubic', **kwargs)
+    method = kwargs.pop('method', 'cubic')
+    return interp.griddata(xy, func_values, new_xy, method=method, **kwargs)
