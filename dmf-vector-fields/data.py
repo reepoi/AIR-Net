@@ -645,6 +645,22 @@ def velocity_by_time_function_3d(func_x, func_y, func_z, grid_bounds, grid_densi
     return VelocityByTime3D(coords=coords, vec_fields=vec_fields)
 
 
+def double_gyre(num_timeframes=11):
+    # source: https://shaddenlab.berkeley.edu/uploads/LCS-tutorial/examples.html#Sec7.1
+    pi = np.pi
+    A = 0.25
+    omega = 2 * pi / 10
+    epsilon = 0.1
+    a = lambda t: epsilon * np.sin(omega * t)
+    b = lambda t: 1 - 2 * epsilon * np.sin(omega * t)
+    f = lambda x, t: a(t) * x**2 + b(t) * x
+    dfdx = lambda x, t: a(t) * 2 * x + b(t)
+    # psi = lambda t, x, y: A * np.sin(pi * f(x, t)) * np.sin(pi * y)
+    u = lambda t, x, y: -pi * A * np.sin(pi * f(x, t)) * np.cos(pi * y)
+    v = lambda t, x, y: pi * A * np.cos(pi * f(x, t)) * np.sin(pi * y) * dfdx(x, t)
+    return velocity_by_time_function(u, v, [(0, 2), (0, 1)], grid_density=100, times=range(num_timeframes))
+
+
 class TimeframeAneurysm(Timeframe):
     def load_data(self):
         """
