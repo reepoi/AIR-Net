@@ -10,6 +10,7 @@ import pandas as pd
 import numpy as np
 import train
 import data
+import model
 
 
 FONT_SIZE = 14
@@ -100,19 +101,69 @@ def plot_nmae(ax, data_set, algorithm, technique, num_factors=1, grid_density=10
     )
 
 
-def vec_field_aneurysm():
+def plot_reconstructed_rank(csv_filename, data_set, technique, num_factors=1, grid_density=100, num_timeframes=None):
+    data_set_name = data_set.value
+    if num_timeframes is not None:
+        data_set_name = f'{data_set_name}_tf{num_timeframes}'
+    files = (OUTPUT_DIR / data_set_name).rglob(csv_filename)
+    files = [p for p in files if technique.value in p.parts]
+    if len(files) == 0:
+        print(f'No files found! {data_set.value}, {technique.value}')
+        return
+    matrices = [pd.read_csv(p, header=None).to_numpy() for p in files]
+    data = []
+    for m, p in zip(matrices, files):
+        algorithm = train.Algorithm.IST if train.Algorithm.IST.value in str(p) else train.Algorithm.DMF
+        mask_rate = float(str(p).partition('mask_rate')[2].partition('/')[0])
+        num_factors = ''
+        if algorithm is train.Algorithm.DMF:
+            num_factors = f' (F={str(p).partition("num_factors")[2].partition("/")[0]})'
+        data.append(dict(
+            mask_rate=mask_rate,
+            label=f'{algorithm.value.upper()}{num_factors}',
+            rank=np.linalg.matrix_rank(m)
+        ))
+    
+    plot_data = dict()
+    for d in data:
+        label = d['label']
+        if label not in plot_data:
+            plot_data[label] = dict(mask_rates=[], ranks=[])
+        plot_data[label]['mask_rates'].append(d['mask_rate'])
+        plot_data[label]['ranks'].append(d['rank'])
+
+    mask_rates = [0.3, 0.5, 0.7, 0.9]
+    fig, ax = plt.subplots()
+    ax.set_xticks(mask_rates)
+    ax.tick_params(axis='both', labelsize=FONT_SIZE)
+    ax.set_xlabel('Mask Rate', fontsize=FONT_SIZE)
+    ax.set_ylabel('Matrix Rank', fontsize=FONT_SIZE)
+    for label, p in plot_data.items():
+        ax.plot(
+            p['mask_rates'], p['ranks'],
+            marker='o', linestyle='dashed',
+            linewidth=1, markersize=7,
+            label=label
+        )
+    ax.legend(fontsize=FONT_SIZE)
+    fig.savefig(f'rank_{data_set.value}_{technique.value}_{csv_filename}.pdf', format='pdf', bbox_inches='tight')
+    plt.close(fig)
+    
+
+
+def vel_by_time_aneurysm():
     args = dict(data_dir=Path('data'))
     time = 0
-    return data.TimeframeAneurysm(time=time, filepath=args['data_dir'] / train.DataSet.ANEURYSM.value / f'vel_2Daneu_crop.{time}.csv').vec_field
+    tf = data.TimeframeAneurysm(time=time, filepath=args['data_dir'] / train.DataSet.ANEURYSM.value / f'vel_2Daneu_crop.{time}.csv')
+    return data.VelocityByTimeAneurysm(
+        coords=tf.vec_field.coords,
+        filepath_vel_by_time=args['data_dir'] / train.DataSet.ANEURYSM.value / 'vel_by_time_2Daneu_crop.csv',
+    )
 
 
-def vec_field_double_gyre():
-    return data.double_gyre().timeframe(0).vec_field
-
-
-def plot_vec_field(field: data.VectorField):
+def plot_vec_field(name, field: data.VectorField, scale=45, subsample=0.3):
     rng = np.random.RandomState(seed=20210909)
-    subsample = rng.randint(field.coords.x.size, size=int(np.floor(field.coords.x.size * 0.3)))
+    subsample = rng.randint(field.coords.x.size, size=int(np.floor(field.coords.x.size * subsample)))
     x = field.coords.x[subsample]
     y = field.coords.y[subsample]
     u = field.velx[subsample]
@@ -133,27 +184,77 @@ def plot_vec_field(field: data.VectorField):
     # http://matplotlib.org/users/colormaps.html
     # for details
     fig, ax = plt.subplots()
-    ax.quiver(x, y, u, v, color=colormap(norm(colors)), angles='xy', scale=45, pivot='mid')
-    fig.savefig('test.pdf', format='pdf', bbox_inches='tight')
+    ax.quiver(x, y, u, v, color=colormap(norm(colors)), angles='xy', scale=scale, pivot='mid')
+    fig.savefig(f'{name}.pdf', format='pdf', bbox_inches='tight')
+    plt.close(fig)
+
+
+def rank_over_vel_by_time_columns(name, vel_by_time: data.VelocityByTime, masked=False, mask_rate=0.9):
+    if masked:
+        mask = model.get_bit_mask(vel_by_time.shape_as_completable(interleaved=False), mask_rate)
+        vel_by_time = vel_by_time.transform(lambda vel: vel * mask, interleaved=False)
+    times = range(vel_by_time.timeframes)
+    ranks_velx = [np.linalg.matrix_rank(vel_by_time.velx_by_time[:, :t+1]) for t in times]
+    ranks_vely = [np.linalg.matrix_rank(vel_by_time.vely_by_time[:, :t+1]) for t in times]
+    interleaved = vel_by_time.completable_matrices()
+    ranks_interleaved = [np.linalg.matrix_rank(interleaved[:, :t+1]) for t in times]
+    fig, ax = plt.subplots()
+    ax.plot(times, ranks_velx, label='velx')
+    ax.plot(times, ranks_vely, label='vely')
+    ax.plot(times, ranks_interleaved, label='intrlvd')
+    ax.legend(fontsize=FONT_SIZE)
+    fig.savefig(f'{name}.pdf', format='pdf', bbox_inches='tight')
+    plt.close(fig)
+
+
+def rank_over_timeframes(name, vel_by_time: data.VelocityByTime, masked=False, mask_rate=0.9):
+    if masked:
+        mask = model.get_bit_mask(vel_by_time.shape_as_completable(interleaved=False), mask_rate)
+        vel_by_time = vel_by_time.transform(lambda vel: vel * mask, interleaved=False)
+    times = range(vel_by_time.timeframes)
+    tf_vec_fields = [vel_by_time.timeframe(t).vec_field for t in times]
+    ranks_velx = [np.linalg.matrix_rank(vf.velx) for vf in tf_vec_fields]
+    ranks_vely = [np.linalg.matrix_rank(vf.vely) for vf in tf_vec_fields]
+    fig, ax = plt.subplots()
+    ax.plot(times, ranks_velx, label='velx')
+    ax.plot(times, ranks_vely, label='vely')
+    ax.legend(fontsize=FONT_SIZE)
+    fig.savefig(f'{name}.pdf', format='pdf', bbox_inches='tight')
     plt.close(fig)
 
 
 if __name__ == '__main__':
-    plot_vec_field(vec_field_aneurysm())
-    plot_vec_field(vec_field_double_gyre())
+    # aneurysm = vel_by_time_aneurysm()
+    # double_gyre = data.double_gyre(num_timeframes=22)
+    # plot_vec_field(f'vf_{train.DataSet.ANEURYSM.value}', aneurysm.timeframe(0).vec_field)
+    # plot_vec_field(f'vf_{train.DataSet.DOUBLE_GYRE.value}', double_gyre.timeframe(0).vec_field)
+    # plot_vec_field(f'vf_all_{train.DataSet.ANEURYSM.value}', aneurysm.timeframe(0).vec_field, scale=100, subsample=1)
+    # plot_vec_field(f'vf_all_{train.DataSet.DOUBLE_GYRE.value}', double_gyre.timeframe(0).vec_field, scale=100, subsample=1)
+    # rank_over_vel_by_time_columns(f'rank_{train.DataSet.ANEURYSM.value}', aneurysm)
+    # rank_over_vel_by_time_columns(f'rank_{train.DataSet.DOUBLE_GYRE.value}', double_gyre)
+    # rank_over_timeframes(f'rank_tf_{train.DataSet.ANEURYSM.value}', aneurysm)
+    # rank_over_timeframes(f'rank_tf_{train.DataSet.DOUBLE_GYRE.value}', double_gyre)
+    # mask_rate = 0.9
+    # rank_over_vel_by_time_columns(f'rank_masked{mask_rate}_{train.DataSet.ANEURYSM.value}', aneurysm, masked=True, mask_rate=mask_rate)
+    # rank_over_vel_by_time_columns(f'rank_masked{mask_rate}_{train.DataSet.DOUBLE_GYRE.value}', double_gyre, masked=True, mask_rate=mask_rate)
+    # rank_over_timeframes(f'rank_tf_masked{mask_rate}_{train.DataSet.ANEURYSM.value}', aneurysm, masked=True, mask_rate=mask_rate)
+    # rank_over_timeframes(f'rank_tf_masked{mask_rate}_{train.DataSet.DOUBLE_GYRE.value}', double_gyre, masked=True, mask_rate=mask_rate)
     OUTPUT_DIR = Path(__file__).parent / '..' / 'out' / 'output'
-    image_format = 'pdf'
-    kwargs = dict(grid_density=100, num_timeframes=None)
+    # image_format = 'pdf'
+    # kwargs = dict(grid_density=100, num_timeframes=None)
     for t, d in itertools.product(train.Technique, [train.DataSet.ANEURYSM, train.DataSet.DOUBLE_GYRE]):
-        fig, ax = plt.subplots()
-        plot_nmae(ax, d, train.Algorithm.IST, t, **kwargs)
-        for nf in [2, 3, 4, 5]:
-            plot_nmae(ax, d, train.Algorithm.DMF, t, num_factors=nf, **kwargs)
-        plot_name = f'figures/{d.value}_{t.value}'
-        if kwargs['num_timeframes'] is not None:
-            plot_name = f'{plot_name}_tf{kwargs["num_timeframes"]}'
-        if t is train.Technique.INTERPOLATED:
-            plot_name = f'{plot_name}_gd{kwargs["grid_density"]}'
-        ax.legend(fontsize=FONT_SIZE)
-        fig.savefig(f'{plot_name}.{image_format}', format=image_format, bbox_inches='tight')
-        plt.close(fig)
+        plot_reconstructed_rank('reconstructed_velx_by_time.csv', d, t, num_factors=1, grid_density=100, num_timeframes=None)
+        plot_reconstructed_rank('reconstructed_vely_by_time.csv', d, t, num_factors=1, grid_density=100, num_timeframes=None)
+    # for t, d in itertools.product(train.Technique, [train.DataSet.ANEURYSM, train.DataSet.DOUBLE_GYRE]):
+    #     fig, ax = plt.subplots()
+    #     plot_nmae(ax, d, train.Algorithm.IST, t, **kwargs)
+    #     for nf in [2, 3, 4, 5]:
+    #         plot_nmae(ax, d, train.Algorithm.DMF, t, num_factors=nf, **kwargs)
+    #     plot_name = f'figures/{d.value}_{t.value}'
+    #     if kwargs['num_timeframes'] is not None:
+    #         plot_name = f'{plot_name}_tf{kwargs["num_timeframes"]}'
+    #     if t is train.Technique.INTERPOLATED:
+    #         plot_name = f'{plot_name}_gd{kwargs["grid_density"]}'
+    #     ax.legend(fontsize=FONT_SIZE)
+    #     fig.savefig(f'{plot_name}.{image_format}', format=image_format, bbox_inches='tight')
+    #     plt.close(fig)

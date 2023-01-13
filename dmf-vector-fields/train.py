@@ -42,6 +42,8 @@ def get_argparser():
                         help='the expected precentage of matrix entries to be set to zero.')
     parser.add_argument('--data-set', type=DataSet,
                         help='the data set in the data dir to use.')
+    parser.add_argument('--timeframes', type=int, default=None,
+                        help='the number of time frames to use for a data set.')
     parser.add_argument('--data-dir', type=Path, default=Path('data'),
                         help='path to the matrix completion data.')
     parser.add_argument('--save-dir', type=str, default=Path('..') / 'out' / 'output',
@@ -266,6 +268,7 @@ mask = None
 def run_test(**args):
     # Select vector field
     ds = args['data_set']
+    num_timeframes = args['timeframes']
     if ds is DataSet.ANEURYSM:
         time = 0
         tf = data.TimeframeAneurysm(time=time, filepath=args['data_dir'] / DataSet.ANEURYSM.value / f'vel_2Daneu_crop.{time}.csv')
@@ -273,25 +276,18 @@ def run_test(**args):
             coords=tf.vec_field.coords,
             filepath_vel_by_time=args['data_dir'] / DataSet.ANEURYSM.value / 'vel_by_time_2Daneu_crop.csv',
         )
+        if num_timeframes is not None:
+            vbt.velx_by_time, vbt.vely_by_time = vbt.velx_by_time[:, :num_timeframes], vbt.vely_by_time[:, :num_timeframes]
     elif ds is DataSet.FUNC1:
         func_x = lambda t, x, y: np.sin(2 * x + 2 * y)
         func_y = lambda t, x, y: np.cos(2 * x - 2 * y)
         vbt = data.velocity_by_time_function(func_x, func_y, [(-2, 2)] * 2, grid_density=100)
     elif ds is DataSet.DOUBLE_GYRE:
-        # source: https://shaddenlab.berkeley.edu/uploads/LCS-tutorial/examples.html#Sec7.1
-        pi = np.pi
-        A = 0.25
-        omega = 2 * pi / 10
-        epsilon = 0.1
-        a = lambda t: epsilon * np.sin(omega * t)
-        b = lambda t: 1 - 2 * epsilon * np.sin(omega * t)
-        f = lambda x, t: a(t) * x**2 + b(t) * x
-        dfdx = lambda x, t: a(t) * 2 * x + b(t)
-        # psi = lambda t, x, y: A * np.sin(pi * f(x, t)) * np.sin(pi * y)
-        u = lambda t, x, y: -pi * A * np.sin(pi * f(x, t)) * np.cos(pi * y)
-        v = lambda t, x, y: pi * A * np.cos(pi * f(x, t)) * np.sin(pi * y) * dfdx(x, t)
-        vbt = data.velocity_by_time_function(u, v, [(0, 2), (0, 1)], grid_density=100, times=range(11))
-    elif ds is DataSet.FUNC2:
+        if num_timeframes is None:
+            vbt = data.double_gyre()
+        else:
+            vbt = data.double_gyre(num_timeframes=num_timeframes)
+    elif ds is DataSet.FUNC3:
         func_x = lambda t, x, y, z: np.sin(2 * x + 2 * y)
         func_y = lambda t, x, y, z: np.cos(2 * x - 2 * y)
         func_z = lambda t, x, y, z: np.cos(2 * x - 2 * z)
@@ -312,7 +308,14 @@ def run_test(**args):
 
     # Select pre-processing technique and algorithm
     technique = args['technique']
-    save_dir = Path(args['save_dir']) / ds.value / args['algorithm'].value / (f'num_factors{args["num_factors"]}' if args['algorithm'] is Algorithm.DMF else '.') / f'mask_rate{args["mask_rate"]}' / technique.value
+    data_set_name = ds.value
+    if num_timeframes:
+        data_set_name = f'{ds.value}_tf{num_timeframes}'
+    save_dir = (
+        Path(args['save_dir']) / data_set_name / args['algorithm'].value
+        / (f'num_factors{args["num_factors"]}' if args['algorithm'] is Algorithm.DMF else '.')
+        / f'mask_rate{args["mask_rate"]}' / technique.value
+    )
     if technique is Technique.IDENTITY:
         args['interleaved'] = False
         args['save_dir'] = save_dir
@@ -354,6 +357,8 @@ def run_test(**args):
 if __name__ == '__main__':
     args = get_argparser().parse_args().__dict__
     if args['run_all'] == 1:
+        grid_density = [100, 200, 300, 400, 500]
+        # grid_density = [50]
         for a in [Algorithm.IST, Algorithm.DMF]:
         # for a in Algorithm:
             args['algorithm'] = a
@@ -370,12 +375,11 @@ if __name__ == '__main__':
                 run_test(**args)
 
             # Run interpolated
-            args['technique'] = Technique.INTERPOLATED
-            for nf in num_factors:
-                args['num_factors'] = nf
-                grid_density = [100, 200, 300, 400, 500]
-                for gd in grid_density:
-                    args['grid_density'] = gd
-                    run_test(**args)
+            # args['technique'] = Technique.INTERPOLATED
+            # for gd in grid_density:
+            #     args['grid_density'] = gd
+            #     for nf in num_factors:
+            #         args['num_factors'] = nf
+            #         run_test(**args)
     else:
         run_test(**args)
