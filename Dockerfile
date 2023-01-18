@@ -14,6 +14,8 @@ RUN apt -y install build-essential
 
 RUN apt-get -y install git
 
+RUN apt-get -y install tmux
+
 LABEL taost=taost
 
 COPY . /root/workspace/
@@ -29,3 +31,5 @@ ENV CUDA_VISIBLE_DEVICES=all
 ENV PORT=8811
 
 EXPOSE 8811
+
+CMD bash
