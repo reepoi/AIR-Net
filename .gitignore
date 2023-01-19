@@ -5,4 +5,4 @@ __pycache__
 wandb
 cropped_2D_aneurysm
 out
-dmf-vector-fields/data
+**.egg-info

@@ -10,8 +10,8 @@ import numpy as np
 import pandas as pd
 import scipy.interpolate as interp
 
-import model
-import data
+from dmf_vector_fields import model
+from dmf_vector_fields import data
 
 
 class DataSet(enum.Enum):

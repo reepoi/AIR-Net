@@ -2,7 +2,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from settings import torch, device
+from dmf_vector_fields.settings import torch, device
 import scipy.interpolate as interp
 
 
