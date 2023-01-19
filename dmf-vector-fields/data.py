@@ -10,6 +10,7 @@ import scipy.interpolate as interp
 class Coordinates:
     x: np.ndarray
     y: np.ndarray
+    components = 'x', 'y'
     
 
     @property
@@ -22,11 +23,6 @@ class Coordinates:
             The torch or numpy module.
         """
         return torch if type(self.x) is torch.Tensor else np
-    
-
-    @property
-    def components(self):
-        return 'x', 'y'
 
 
     def transform(self, transform_func):
@@ -102,10 +98,7 @@ class Coordinates:
 @dataclass(frozen=True)
 class Coordinates3D(Coordinates):
     z: np.ndarray
-
-    @property
-    def components(self):
-        return *super().components, 'z'
+    components = *Coordinates.components, 'z'
 
 
 @dataclass(frozen=True)
@@ -113,6 +106,7 @@ class VectorField:
     coords: Coordinates
     velx: np.ndarray
     vely: np.ndarray
+    components = 'velx', 'vely'
     
 
     @property
@@ -125,11 +119,6 @@ class VectorField:
             The torch or numpy module.
         """
         return self.coords.lib
-    
-
-    @property
-    def components(self):
-        return 'velx', 'vely'
 
 
     def ravel(self):
@@ -233,10 +222,7 @@ class VectorField:
 @dataclass(frozen=True)
 class VectorField3D(VectorField):
     velz: np.ndarray
-
-    @property
-    def components(self):
-        return *super().components, 'velz'
+    components = *VectorField.components, 'velz'
     
 
     def save(self, path, plot=True, **quiver_opts):
@@ -350,6 +336,7 @@ class VelocityByTime:
     coords: Coordinates
     velx_by_time: np.ndarray
     vely_by_time: np.ndarray
+    components = 'velx_by_time', 'vely_by_time'
 
     def __init__(self, coords=None, filepath_vel_by_time=None, vec_fields=None, **vel_by_time_args):
         self.coords = coords
@@ -398,11 +385,6 @@ class VelocityByTime:
             The torch or numpy module.
         """
         return self.coords.lib
-    
-
-    @property
-    def components(self):
-        return 'velx_by_time', 'vely_by_time'
     
 
     def load_data(self):
@@ -551,11 +533,7 @@ class VelocityByTime:
 
 class VelocityByTime3D(VelocityByTime):
     velz_by_time: np.ndarray
-
-    @property
-    def components(self):
-        return *super().components, 'velz_by_time'
-    
+    components = *VelocityByTime.components, 'velz_by_time'
 
     @property
     def vec_field_class(self):
@@ -703,6 +681,16 @@ class VelocityByTimeAneurysm(VelocityByTime):
         data = data.to_numpy()
         self.velx_by_time = data[0::2]
         self.vely_by_time = data[1::2]
+
+
+    @classmethod
+    def load_from(cls, path):
+        load = lambda n: np.loadtxt(f'{path}_{n}.csv', delimiter=',')
+        return cls(
+            coords=Coordinates(*(load(c) for c in Coordinates.components)),
+            velx_by_time=load('velx_by_time'),
+            vely_by_time=load('vely_by_time')
+        )
 
 
     def save(self, path, plot_time=None):

@@ -270,12 +270,7 @@ def run_test(**args):
     ds = args['data_set']
     num_timeframes = args['timeframes']
     if ds is DataSet.ANEURYSM:
-        time = 0
-        tf = data.TimeframeAneurysm(time=time, filepath=args['data_dir'] / DataSet.ANEURYSM.value / f'vel_2Daneu_crop.{time}.csv')
-        vbt = data.VelocityByTimeAneurysm(
-            coords=tf.vec_field.coords,
-            filepath_vel_by_time=args['data_dir'] / DataSet.ANEURYSM.value / 'vel_by_time_2Daneu_crop.csv',
-        )
+        vbt = data.VelocityByTimeAneurysm.load_from(args['data_dir'] / DataSet.ANEURYSM.value / 'vel_by_time')
         if num_timeframes is not None:
             vbt.velx_by_time, vbt.vely_by_time = vbt.velx_by_time[:, :num_timeframes], vbt.vely_by_time[:, :num_timeframes]
     elif ds is DataSet.FUNC1:
