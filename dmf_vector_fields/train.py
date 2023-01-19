@@ -1,15 +1,11 @@
 import argparse
-from collections import OrderedDict
 import enum
-import itertools
 import json
 from pathlib import Path
 
-from settings import torch, device
 import numpy as np
-import pandas as pd
-import scipy.interpolate as interp
 
+from dmf_vector_fields.settings import torch, device
 from dmf_vector_fields import model
 from dmf_vector_fields import data
 
@@ -19,6 +15,12 @@ class DataSet(enum.Enum):
     FUNC1 = 'func1'
     FUNC2 = 'func2'
     DOUBLE_GYRE = 'double-gyre'
+    ARORA2019_5 = 'arora2019-rank5'
+
+
+class DataSetType(enum.Enum):
+    VectorField = 'vector-field'
+    Matrix = 'matrix'
 
 
 class Algorithm(enum.Enum):
@@ -42,6 +44,8 @@ def get_argparser():
                         help='the expected precentage of matrix entries to be set to zero.')
     parser.add_argument('--data-set', type=DataSet,
                         help='the data set in the data dir to use.')
+    parser.add_argument('--data-set-type', type=DataSetType, default=DataSetType.VectorField,
+                        help='the type of the data set.')
     parser.add_argument('--timeframes', type=int, default=None,
                         help='the number of time frames to use for a data set.')
     parser.add_argument('--data-dir', type=Path, default=Path('data'),
@@ -200,7 +204,7 @@ def run_velocity_by_time(vbt, vbt_masked, vbt_mask, **args):
             print(f'Component: {component}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE: {nmae_against_original:.5e}')
         if last_report:
             print(f'\n*** END {"all" if interleaved else component} ***\n')
-    
+
     report_data = dict()
 
     plot_time = 0
@@ -287,12 +291,12 @@ def run_test(**args):
         func_y = lambda t, x, y, z: np.cos(2 * x - 2 * y)
         func_z = lambda t, x, y, z: np.cos(2 * x - 2 * z)
         vbt = data.velocity_by_time_function_3d(func_x, func_y, func_z, (-2, 2), grid_density=100)
-    
+
     # Check if test should be skipped
     if (msg := skip_test(vbt, **args)) != '':
         print(f'TEST SKIPPED: {msg}.')
         return
-    
+
     # Mask vector field
     # The mask should be created once so that is the same for all experiments
     global mask
@@ -343,38 +347,144 @@ def run_test(**args):
 
     # Run algorithm
     vbt_rec = task()
-    
+
     # Record final NMAE results
     nmaes = {c: model.norm_mean_abs_error(getattr(vbt_rec, c), getattr(vbt, c), lib=np) for c in vbt.components}
     save_json(save_dir / 'nmae', nmaes)
 
 
+def run_matrix(m, m_masked, **args):
+    def meets_stop_criteria(epoch, loss):
+        return loss < args['desired_loss']
+
+    def report(reconstructed_matrix, epoch, loss, last_report: bool):
+        nmae_against_original = model.norm_mean_abs_error(reconstructed_matrix, m.data, lib=np)
+        record_report_data(report_data, 'matrix_data', epoch, loss.item(), nmae_against_original)
+        print(f'Component: matrix_data, Epoch: {epoch}, Loss: {loss:.5e}, NMAE: {nmae_against_original:.5e}')
+        if last_report:
+            print('\n*** END matrix_data ***\n')
+
+    report_data = dict()
+
+    save_dir = lambda p: f'{args["save_dir"]}/{p}'
+
+    # vbt.save(save_dir('original'), plot_time=plot_time)
+    # vbt_masked.save(save_dir('masked'), plot_time=plot_time)
+
+    print(f'Mask Rate: {args["mask_rate"]}')
+
+    mask = np.zeros_like(m.data)
+    mask[m.sampled_index_u, m.sampled_index_v] = 1
+    mask_torch = no_requires_grad(torch.tensor(mask, dtype=torch.float64).to(device))
+    if args['algorithm'] is Algorithm.DMF:
+        def trainer(vel):
+            return model.train(
+                max_epochs=args['max_epochs'],
+                matrix_factor_dimensions=matrix_factor_dimensions,
+                masked_matrix=vel,
+                mask=mask_torch,
+                meets_stop_criteria=meets_stop_criteria,
+                report_frequency=args['report_frequency'],
+                report=lambda *args: report(*args)
+            )
+        rows, cols = m.data.shape
+        min_dim = min(rows, cols)
+        matrix_factor_dimensions = [model.Shape(rows=rows, cols=min_dim)]
+        matrix_factor_dimensions += [model.Shape(rows=min_dim, cols=min_dim) for _ in range(1, args['num_factors'] - 1)]
+        matrix_factor_dimensions.append(model.Shape(rows=min_dim, cols=cols))
+        print(matrix_factor_dimensions)
+        m_rec = m_masked.numpy_to_torch().transform(trainer).torch_to_numpy()
+    elif args['algorithm'] is Algorithm.IST:
+        def trainer(vel):
+            return model.iterated_soft_thresholding(
+                masked_matrix=vel,
+                mask=mask_torch,
+                report_frequency=args['report_frequency'],
+                report=lambda *args: report(*args)
+            )
+        m_rec = m_masked.numpy_to_torch().transform(no_requires_grad).transform(trainer).torch_to_numpy()
+
+    m_rec.save(save_dir('reconstructed'))
+
+    save_json(save_dir('report_data'), report_data)
+
+    return m_rec
+
+
+matrix_mask = None
+def run_matrix_test(**args):
+    # Select vector field
+    ds = args['data_set']
+    mask_func = None
+    if ds is DataSet.ARORA2019_5:
+        m = data.MatrixArora2019(
+            filepath=args['data_dir'] / 'arora2019',
+            rank=5, mask_rate=args['mask_rate']
+        )
+
+        def mask_func(x):
+            masked = np.zeros_like(x)
+            masked[m.sampled_index_u, m.sampled_index_v] = x[m.sampled_index_u, m.sampled_index_v]
+            return masked
+
+    # Mask vector field
+    # The mask should be created once so that is the same for all experiments
+    global matrix_mask
+    if matrix_mask is None:
+        mask = model.get_bit_mask(m.data.shape, args['mask_rate'])
+    if mask_func is None:
+        mask_func = lambda x: x * mask
+
+    m_masked = m.transform(mask_func)
+
+    # Select pre-processing technique and algorithm
+    technique = args['technique']
+    save_dir = (
+        Path(args['save_dir']) / ds.value / args['algorithm'].value
+        / (f'num_factors{args["num_factors"]}' if args['algorithm'] is Algorithm.DMF else '.')
+        / f'mask_rate{args["mask_rate"]}'
+    )
+
+    # Create save_dir
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    # Run algorithm
+    m_rec = run_matrix(m, m_masked, **args)
+
+    # Record final NMAE results
+    nmaes = {'matrix_data': model.norm_mean_abs_error(m_rec.data, m.data, lib=np)}
+    save_json(save_dir / 'nmae', nmaes)
+
+
 if __name__ == '__main__':
     args = get_argparser().parse_args().__dict__
-    if args['run_all'] == 1:
-        grid_density = [100, 200, 300, 400, 500]
-        # grid_density = [50]
-        for a in [Algorithm.IST, Algorithm.DMF]:
-        # for a in Algorithm:
-            args['algorithm'] = a
-            num_factors = [2, 3, 4, 5] if a is Algorithm.DMF else [1]
-            for nf in num_factors:
-                args['num_factors'] = nf
+    if args['data_set_type'] is DataSetType.VectorField:
+        if args['run_all'] == 1:
+            grid_density = [100, 200, 300, 400, 500]
+            # grid_density = [50]
+            for a in [Algorithm.IST, Algorithm.DMF]:
+            # for a in Algorithm:
+                args['algorithm'] = a
+                num_factors = [2, 3, 4, 5] if a is Algorithm.DMF else [1]
+                for nf in num_factors:
+                    args['num_factors'] = nf
 
-                # Run identity
-                args['technique'] = Technique.IDENTITY
-                run_test(**args)
+                    # Run identity
+                    args['technique'] = Technique.IDENTITY
+                    run_test(**args)
 
-                # Run interleaved
-                args['technique'] = Technique.INTERLEAVED
-                run_test(**args)
+                    # Run interleaved
+                    args['technique'] = Technique.INTERLEAVED
+                    run_test(**args)
 
-            # Run interpolated
-            # args['technique'] = Technique.INTERPOLATED
-            # for gd in grid_density:
-            #     args['grid_density'] = gd
-            #     for nf in num_factors:
-            #         args['num_factors'] = nf
-            #         run_test(**args)
-    else:
-        run_test(**args)
+                # Run interpolated
+                # args['technique'] = Technique.INTERPOLATED
+                # for gd in grid_density:
+                #     args['grid_density'] = gd
+                #     for nf in num_factors:
+                #         args['num_factors'] = nf
+                #         run_test(**args)
+        else:
+            run_test(**args)
+    elif args['data_set_type'] is DataSetType.Matrix:
+        run_matrix_test(**args)

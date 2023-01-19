@@ -11,13 +11,13 @@ class Coordinates:
     x: np.ndarray
     y: np.ndarray
     components = 'x', 'y'
-    
+
 
     @property
     def lib(self):
         """
         The ndarray library used for storing the data fields.
-        
+
         Returns
         -------
             The torch or numpy module.
@@ -33,7 +33,7 @@ class Coordinates:
         ----------
         transform_func: function(ndarray)
             The transform to apply.
-        
+
         Returns
         -------
             ``Coordinates``
@@ -49,14 +49,14 @@ class Coordinates:
         ----------
         coords: Coordinates
             A Coordinates instance.
-        
+
         Returns
         -------
             A new Coordinates instance with components whose
             shape is flattened.
         """
         return self.transform(lambda x: x.ravel())
-    
+
 
     def to_tuple(self):
         """
@@ -67,7 +67,7 @@ class Coordinates:
             A tuple of all the data fields of Coordinates.
         """
         return tuple(getattr(self, c) for c in self.components)
-    
+
 
     def bounding_grid(self, grid_density):
         """
@@ -87,7 +87,7 @@ class Coordinates:
         ls = lambda c: lib.linspace(lib.min(c), lib.max(c), grid_density)
         mg = lib.meshgrid(*(ls(getattr(self, c)) for c in self.components), indexing='xy')
         return self.__class__(*mg)
-    
+
 
     def save(self, path):
         save = lambda name, arr: np.savetxt(f'{path}_{name}.csv', arr, delimiter=',')
@@ -107,13 +107,13 @@ class VectorField:
     velx: np.ndarray
     vely: np.ndarray
     components = 'velx', 'vely'
-    
+
 
     @property
     def lib(self):
         """
         The ndarray library used for storing the data fields.
-        
+
         Returns
         -------
             The torch or numpy module.
@@ -132,7 +132,7 @@ class VectorField:
             shape is flattened.
         """
         return self.transform(lambda x: x.ravel(), apply_to_coords=True)
-    
+
 
     def to_tuple(self):
         """
@@ -143,7 +143,7 @@ class VectorField:
             A tuple of all the data fields of a VectorField.
         """
         return *self.coords.to_tuple(), *(getattr(self, c) for c in self.components)
-    
+
 
     def interp(self, grid_density=None, coords=None, **interp_opts):
         """
@@ -161,7 +161,7 @@ class VectorField:
 
         **interp_opts: dict
             The keyword arguments to pass to :func:`interp_griddata`.
-        
+
         Returns
         -------
             A VectorField on defined on new Coordinates.
@@ -183,7 +183,7 @@ class VectorField:
             ``VectorField``
         """
         return self.interp(grid_density=grid_density, fill_value=0, **kwargs)
-    
+
 
     def transform(self, transform_func, apply_to_coords=False):
         """
@@ -193,10 +193,10 @@ class VectorField:
         ----------
         transform_func: function(ndarray)
             Applies a transform to a ndarray.
-        
+
         apply_to_coords: bool, False
             Apply ``transform_func`` to ``VectorField``'s coordinates.
-        
+
         Returns
         -------
             A VectorField
@@ -205,7 +205,7 @@ class VectorField:
             self.coords.transform(transform_func) if apply_to_coords else self.coords,
             *(transform_func(getattr(self, c)) for c in self.components)
         )
-    
+
 
     def save(self, path, plot=True, **quiver_opts):
         save = lambda name, arr: np.savetxt(f'{path}_{name}.csv', arr, delimiter=',')
@@ -223,7 +223,7 @@ class VectorField:
 class VectorField3D(VectorField):
     velz: np.ndarray
     components = *VectorField.components, 'velz'
-    
+
 
     def save(self, path, plot=True, **quiver_opts):
         if plot:
@@ -232,7 +232,7 @@ class VectorField3D(VectorField):
             ax.quiver(*self.to_tuple(), **quiver_opts)
             fig.savefig(f'{path}.png')
             plt.close(fig)
-        
+
 
 @dataclass
 class Timeframe:
@@ -248,13 +248,13 @@ class Timeframe:
         else:
             assert filepath is not None, 'Need a filepath to load_data'
             self.load_data()
-    
+
 
     @property
     def lib(self):
         """
         The ndarray library used for storing the data fields.
-        
+
         Returns
         -------
             The torch or numpy module.
@@ -279,18 +279,18 @@ class Timeframe:
             filepath=None,
             vec_field=self.vec_field.as_completable(grid_density, **kwargs)
         )
-    
+
 
     def transform(self, transform_func, apply_to_coords=False):
         """
         Applies a transform to velx and vely and returns the result.
-        
+
         transform_func: function(matrix)
             The transform function to apply.
 
         apply_to_coords: bool, False
             Apply ``transform_func`` to ``Timeframe``'s coordinates.
-        
+
         Returns
         -------
             An ``Timeframe`` with ``filepath=None``.
@@ -300,31 +300,31 @@ class Timeframe:
             filepath=None,
             vec_field=self.vec_field.transform(transform_func, apply_to_coords=apply_to_coords)
         )
-    
+
 
     def torch_to_numpy(self):
         """
         Convert all data from torch tensors to numpy ndarrays.
-        
+
         Returns
         -------
             ``Timeframe`` whose data are numpy ndarrays.
         """
         transform_func = lambda x: x.detach().cpu().numpy()
         return self.transform(transform_func, apply_to_coords=True)
-    
+
 
     def numpy_to_torch(self):
         """
         Convert all data from numpy ndarrays to torch tensors.
-        
+
         Returns
         -------
             ``Timeframe`` whose data are torch tensors.
         """
         transform_func = lambda x: torch.tensor(x).to(device)
         return self.transform(transform_func, apply_to_coords=True)
-    
+
 
     def save(self, path, plot=True, **quiver_opts):
         self.vec_field.save(path, plot=plot, **quiver_opts)
@@ -351,7 +351,7 @@ class VelocityByTime:
                 setattr(self, c_vbt, np.vstack([getattr(vf, c_vf).ravel() for vf in vec_fields]).T)
         else:
             self.load_data()
-    
+
 
     @property
     def timeframes(self):
@@ -363,7 +363,7 @@ class VelocityByTime:
             int
         """
         return self.velx_by_time.shape[-1]
-    
+
 
     @property
     def timeframe_class(self):
@@ -373,23 +373,23 @@ class VelocityByTime:
     @property
     def vec_field_class(self):
         return VectorField
-    
+
 
     @property
     def lib(self):
         """
         The ndarray library used for storing the data fields.
-        
+
         Returns
         -------
             The torch or numpy module.
         """
         return self.coords.lib
-    
+
 
     def load_data(self):
         raise NotImplementedError('This should be overriden.')
-    
+
 
     def timeframe(self, time):
         """
@@ -399,7 +399,7 @@ class VelocityByTime:
         ----------
         time: int
             An integer in {0, 1,..., VelocityByTime.timeframes - 1}
-        
+
         Returns
         -------
             ``Timeframe`` with ``filepath = None``.
@@ -412,7 +412,7 @@ class VelocityByTime:
                 *(getattr(self, c)[:, time] for c in self.components)
             )
         )
-    
+
 
     def shape_as_completable(self, interleaved=True):
         """
@@ -424,7 +424,7 @@ class VelocityByTime:
             If ``interleaved`` is ``True``, this returns a single matrix
             with the rows velx and vely for every time step interleaved.
             Otherwise, velx and vely for every timestep are returned separately.
-        
+
         Returns
         -------
             ``VelocityByTime``
@@ -467,13 +467,13 @@ class VelocityByTime:
         ----------
         transform_func: function(ndarray)
             The transformation to apply.
-        
+
         interleaved: bool, default True
             See :func:`VelocityByTime.shape_as_completable`.
 
         apply_to_coords: bool, False
             Apply ``transform_func`` to ``VelocityByTime``'s coordinates.
-        
+
         Returns
         -------
             ``VelocityByTime``
@@ -493,24 +493,24 @@ class VelocityByTime:
             coords=coords,
             **{c: transform_func(m) for c, m in zip(self.components, completable)}
         )
-    
+
 
     def torch_to_numpy(self):
         """
         Convert all data from torch tensors to numpy ndarrays.
-        
+
         Returns
         -------
             ``VelocityByTime`` whose data are numpy ndarrays.
         """
         transform_func = lambda x: x.detach().cpu().numpy()
         return self.transform(transform_func, interleaved=False, apply_to_coords=True)
-    
+
 
     def numpy_to_torch(self):
         """
         Convert all data from numpy ndarrays to torch tensors.
-        
+
         Returns
         -------
             ``VelocityByTime`` whose data are torch tensors.
@@ -554,17 +554,17 @@ def velocity_by_time_function(func_x, func_y, grid_bounds, grid_density, times=N
     func_y: funcition(t, x, y)
         The function defining the y-component of a vector field. It
         must be vectorized with respect to its spatial coordinates (x, y).
-    
+
     grid_bounds: list(tuple(float, float))
         The bounds of the grid to evaluate the vector field functions on.
         The grid is square.
-    
+
     grid_density: int
         The number of points the grid has along any edge.
-    
+
     times: list(float), default [0]
         A list of times to evaluate the vector field functions at.
-    
+
     Returns
     -------
         ``VelocityByTime``
@@ -598,17 +598,17 @@ def velocity_by_time_function_3d(func_x, func_y, func_z, grid_bounds, grid_densi
     func_z: funcition(t, x, y, z)
         The function defining the z-component of a vector field. It
         must be vectorized with respect to its spatial coordinates (x, y, z).
-    
+
     grid_bounds: tuple(float, float)
         The bounds of the grid to evaluate the vector field functions on.
         The grid is a cube.
-    
+
     grid_density: int
         The number of points the grid has along any edge.
-    
+
     times: list(float), default [0]
         A list of times to evaluate the vector field functions at.
-    
+
     Returns
     -------
         ``VelocityByTime3D``
@@ -659,7 +659,7 @@ class TimeframeAneurysm(Timeframe):
             velx=data['velx'].to_numpy(),
             vely=data['vely'].to_numpy()
         )
-    
+
 
     def save(self, path, plot=True):
         super().save(path, plot=True, scale=400)
@@ -697,6 +697,146 @@ class VelocityByTimeAneurysm(VelocityByTime):
         super().save(path, plot_time=plot_time, scale=400)
 
 
+@dataclass
+class Matrix:
+    filepath: str
+    data: np.ndarray
+
+    def __init__(self, filepath, data=None):
+        self.filepath = filepath
+        if data is None:
+            self.load_data()
+        else:
+            self.data = data
+
+    def load_data(self):
+        raise NotImplementedError
+
+    def transform(self, transform_func):
+        """
+        Apply a transformation to the completable data fields of ``Matirx``.
+
+        Parameters
+        ----------
+        transform_func: function(ndarray)
+            The transformation to apply.
+
+        Returns
+        -------
+            ``Matrix``
+        """
+        return self.__class__(
+            filepath=None,
+            data=transform_func(self.data)
+        )
+
+
+    def torch_to_numpy(self):
+        """
+        Convert all data from torch tensors to numpy ndarrays.
+
+        Returns
+        -------
+            ``Matrix`` whose data are numpy ndarrays.
+        """
+        transform_func = lambda x: x.detach().cpu().numpy()
+        return self.transform(transform_func)
+
+
+    def numpy_to_torch(self):
+        """
+        Convert all data from numpy ndarrays to torch tensors.
+
+        Returns
+        -------
+            ``Matrix`` whose data are torch tensors.
+        """
+        transform_func = lambda x: torch.tensor(x).to(device)
+        return self.transform(transform_func)
+
+    def save(self, path):
+        save = lambda n, arr: np.savetxt(f'{path}_{n}.csv', arr, delimiter=',')
+        save('matrix_data', self.data)
+
+
+@dataclass
+class MatrixArora2019(Matrix):
+    rank: int
+    mask_rate: float
+    sampled_index_u: np.ndarray
+    sampled_index_v: np.ndarray
+
+    def __init__(self, filepath, rank, mask_rate, data=None,
+                 sampled_index_u=None, sampled_index_v=None):
+        self.filepath = filepath
+        self.rank = rank
+        self.mask_rate = mask_rate
+        if data is None:
+            self.load_data()
+        else:
+            self.data = data
+            self.sampled_index_u = sampled_index_u
+            self.sampled_index_v = sampled_index_v
+
+    def load_data(self):
+        rank_path = f'rank{self.rank}'
+        masked_path = f'{rank_path}maskrate{self.mask_rate}'
+        self.data = torch.load(self.filepath / f'{rank_path}.pt').numpy()
+        mask_indices, _ = torch.load(self.filepath / f'{masked_path}.pt')
+        self.sampled_index_u = mask_indices[0].numpy()
+        self.sampled_index_v = mask_indices[1].numpy()
+
+    def transform(self, transform_func, apply_to_indices=False):
+        """
+        Apply a transformation to the completable data fields of ``Matirx``.
+
+        Parameters
+        ----------
+        transform_func: function(ndarray)
+            The transformation to apply.
+
+        Returns
+        -------
+            ``Matrix``
+        """
+        miu = self.sampled_index_u
+        miv = self.sampled_index_v
+        if apply_to_indices:
+            miu = transform_func(miu)
+            miv = transform_func(miv)
+        return self.__class__(
+            filepath=None,
+            data=transform_func(self.data),
+            rank=self.rank,
+            mask_rate=self.mask_rate,
+            sampled_index_u=miu,
+            sampled_index_v=miv
+        )
+
+    def torch_to_numpy(self):
+        """
+        Convert all data from torch tensors to numpy ndarrays.
+
+        Returns
+        -------
+            ``Matrix`` whose data are numpy ndarrays.
+        """
+        transform_func = lambda x: x.detach().cpu().numpy()
+        return self.transform(transform_func, apply_to_indices=True)
+
+
+    def numpy_to_torch(self):
+        """
+        Convert all data from numpy ndarrays to torch tensors.
+
+        Returns
+        -------
+            ``Matrix`` whose data are torch tensors.
+        """
+        transform_func = lambda x: torch.tensor(x).to(device)
+        return self.transform(transform_func, apply_to_indices=True)
+
+
 def interp_griddata(coords: Coordinates, func_values, new_coords: Coordinates, **kwargs):
     """
     Runs SciPy Interpolate's griddata. This method is to
@@ -708,14 +848,14 @@ def interp_griddata(coords: Coordinates, func_values, new_coords: Coordinates, *
     coords: Coordinates
         The Coordinates where the values of the interpolated
         function are defined.
-    
+
     func_values: numeric
         The values for each of the points of Coordinates.
-    
+
     new_coords: Coordinates
         The Coordinates where the an interpolated function value
         should be produced.
-    
+
     Returns
     -------
         numeric

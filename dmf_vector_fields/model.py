@@ -1,5 +1,5 @@
 from collections import namedtuple
-from settings import torch, device
+from dmf_vector_fields.settings import torch, device
 import torch.nn as nn
 import numpy as np
 
@@ -43,13 +43,13 @@ def mean_sqrd_error(a, b, lib=torch):
     ----------
     a: numeric
         An ndarray.
-    
+
     b: numeric
         An ndarray.
-    
+
     lib: module
         The ndarray library to use, i.e. torch or numpy.
-    
+
     Returns
     -------
         float
@@ -66,13 +66,13 @@ def l2_sqrd_error(a, b, lib=torch):
     ----------
     a: numeric
         An ndarray.
-    
+
     b: numeric
         An ndarray.
-    
+
     lib: module
         The ndarray library to use, i.e. torch or numpy.
-    
+
     Returns
     -------
         float
@@ -89,13 +89,13 @@ def norm_mean_abs_error(yhat, y, lib=torch):
     ----------
     yhat: numeric
         The ndarray that is "predicted".
-    
+
     y: numeric
         The groud-truth ndarray.
 
     lib: module
         The ndarray library to use, i.e. torch or numpy.
-    
+
     Returns
     -------
         float
@@ -111,10 +111,10 @@ def get_bit_mask(shape, rate):
     ----------
     shape: iterable
         The size of the matrix to create.
-    
+
     rate: scalar
         The expected percentage of zeros in the matrix.
-    
+
     Returns
     -------
         An ndarray.
@@ -133,13 +133,13 @@ def train(max_epochs, matrix_factor_dimensions, masked_matrix, mask,
     ----------
     max_epochs: int
         The maximum number of iterations of the training loop.
-    
+
     matrix_factor_dimensions: list of Shape
         The dimensions of the matrix factors in the DeepMatrixFactorization model.
-    
+
     masked_matrix: numeric
         The masked ground-truth matrix to be reconstructed.
-    
+
     mask: numeric
         The bit-mask matrix that was used to create ``masked_matrix``.
 
@@ -149,13 +149,13 @@ def train(max_epochs, matrix_factor_dimensions, masked_matrix, mask,
 
     report_frequency: int
         The number of epochs that should pass before calling the ``report`` function.
-    
+
     report: function
         A function for the caller of ``train`` to view the current state of the
         DeepMatrixFactorization model, and of the training loop. This function will
         be passed the current reconstructed matrix, epoch, loss, and a boolean whether
         it is the last time ``report`` will be called.
-    
+
     Returns
     -------
         The reconstructed matrix produced by the DeepMatrixFactorization model.
@@ -191,7 +191,7 @@ def train(max_epochs, matrix_factor_dimensions, masked_matrix, mask,
 
         if meets_stop_criteria(e, to_report(loss)):
             break
-        
+
     report(to_report(reconstructed_matrix), e, to_report(loss), True)
 
     return reconstructed_matrix
@@ -213,29 +213,29 @@ def iterated_soft_thresholding(masked_matrix, mask, err=1e-6, normfac=1, insweep
     ----------
     masked_matrix: numeric
         The masked ground-truth matrix to be reconstructed.
-    
+
     mask: numeric
         The bit-mask matrix that was used to create ``masked_matrix``.
-    
+
     err: positive scalar, default 1e-6
         :math:`\varepsilon` in the constraint of the minization problem.
-    
+
     normfac: scalar, default 1
         The largest eigenvalue of the matrix ``np.matmul(mask.T, mask)``.
         Since ``mask`` is a bit-mask matrix, it should be that ``normfac = 1``.
 
     insweep: int, default 200
         The maximum number of internal sweeps for solving :math:`||(X - \tilde{X}) \odot M||_F^2 + \lambda||X||_*`
-    
+
     tol: scalar, default 1e-4
         The tolerance for (???).
-    
+
     decfac: scalar, default 0.9
         The decrease factor for cooling :math:`\lambda` (???).
 
     report_frequency: int, default 100
         The number of epochs that should pass before calling the ``report`` function.
-    
+
     report: function
         A function for the caller of ``iterated_soft_thresholding``
         to view the current state of the solver. This function will
@@ -245,11 +245,11 @@ def iterated_soft_thresholding(masked_matrix, mask, err=1e-6, normfac=1, insweep
     Returns
     -------
         The reconstructed matrix produced by the algorithm.
-    
+
     References
     ----------
     .. [1] Majumdar, A.: Singular Value Shrinkage. In: Compressed Sensing for Engineers.
-       pp. 110-119. CRC Press/Taylor &amp; Francis, Boca Raton, FL (2019). 
+       pp. 110-119. CRC Press/Taylor &amp; Francis, Boca Raton, FL (2019).
     """
     to_report = lambda x: x.detach().cpu().numpy()
 
@@ -293,7 +293,7 @@ def iterated_soft_thresholding(masked_matrix, mask, err=1e-6, normfac=1, insweep
 
             if torch.abs(loss - loss_prev) / torch.abs(loss + loss_prev) < tol:
                 break
-            
+
         if constraint(reconstructed_matrix) / 2 < err:
             break
 
