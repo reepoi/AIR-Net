@@ -14,7 +14,19 @@ RUN apt -y install build-essential
 
 RUN apt-get -y install git
 
+RUN apt -y install wget
+
+RUN wget https://github.com/neovim/neovim/releases/download/stable/nvim-linux64.deb
+
+RUN apt install ./nvim-linux64.deb
+
+RUN git clone --depth 1 https://github.com/wbthomason/packer.nvim ~/.local/share/nvim/site/pack/packer/start/packer.nvim
+
+RUN git clone --depth 1 https://github.com/reepoi/.dotfiles.git ~/.config/.dotfiles
+
 RUN apt-get -y install tmux
+
+RUN apt-get -y install ripgrep
 
 LABEL taost=taost
 
