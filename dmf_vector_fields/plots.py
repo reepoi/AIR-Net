@@ -8,9 +8,7 @@ import matplotlib.cm as cm
 from matplotlib.colors import Normalize
 import pandas as pd
 import numpy as np
-import train
-import data
-import model
+from dmf_vector_fields import enums, model
 
 
 FONT_SIZE = 14
@@ -41,7 +39,7 @@ def quiver(X, Y, U, V, scale=None, save_path=None):
 def plot_report_data(ax, data_set, time, algorithm, technique, grid_density, component, num_factors=1):
     assert component in {'velx', 'vely'}
     algorithm_nmae_files = (OUTPUT_DIR / data_set.value / algorithm.value).rglob(f'report_data.{time}.json')
-    if algorithm is train.Algorithm.DMF:
+    if algorithm is enums.Algorithm.DMF:
         algorithm_nmae_files = [p for p in algorithm_nmae_files if f'num_factors{num_factors}' in p.parts]
     technique_nmae_files = [p for p in algorithm_nmae_files if technique.value in p.parts]
     grid_density_nmae_files = [p for p in technique_nmae_files if f'grid_density{grid_density}' in p.parts]
@@ -59,7 +57,7 @@ def plot_report_data(ax, data_set, time, algorithm, technique, grid_density, com
     ax.set_xlabel('Mask Rate')
     ax.set_ylabel('NMAE')
     label = algorithm.value
-    if algorithm is train.Algorithm.DMF:
+    if algorithm is enums.Algorithm.DMF:
         label = f'{algorithm.value}_{num_factors}'
     ax.scatter(nmae['mask_rate'], nmae['nmae'], label=label)
 
@@ -69,9 +67,9 @@ def plot_nmae(ax, data_set, algorithm, technique, num_factors=1, grid_density=10
     if num_timeframes is not None:
         data_set_name = f'{data_set_name}_tf{num_timeframes}'
     algorithm_nmae_files = (OUTPUT_DIR / data_set_name / algorithm.value).rglob('nmae.json')
-    if algorithm is train.Algorithm.DMF:
+    if algorithm is enums.Algorithm.DMF:
         algorithm_nmae_files = [p for p in algorithm_nmae_files if f'num_factors{num_factors}' in p.parts]
-    if technique is train.Technique.INTERPOLATED:
+    if technique is enums.Technique.INTERPOLATED:
         algorithm_nmae_files = [p for p in algorithm_nmae_files if f'grid_density{grid_density}' in p.parts]
     technique_nmae_files = [p for p in algorithm_nmae_files if technique.value in p.parts]
     files = sorted(technique_nmae_files)
@@ -90,7 +88,7 @@ def plot_nmae(ax, data_set, algorithm, technique, num_factors=1, grid_density=10
     ax.set_xlabel('Mask Rate', fontsize=FONT_SIZE)
     ax.set_ylabel('log10(NMAE)', fontsize=FONT_SIZE)
     label = algorithm.value.upper()
-    if algorithm is train.Algorithm.DMF:
+    if algorithm is enums.Algorithm.DMF:
         label = f'{label} (F={num_factors})'
     data = lambda c: np.log10(nmae[c].to_numpy() if not isinstance(nmae[c], np.float64) else nmae[c])
     ax.plot(
@@ -113,17 +111,17 @@ def plot_reconstructed_rank(csv_filename, data_set, technique, num_factors=1, gr
     matrices = [pd.read_csv(p, header=None).to_numpy() for p in files]
     data = []
     for m, p in zip(matrices, files):
-        algorithm = train.Algorithm.IST if train.Algorithm.IST.value in str(p) else train.Algorithm.DMF
+        algorithm = enums.Algorithm.IST if enums.Algorithm.IST.value in str(p) else enums.Algorithm.DMF
         mask_rate = float(str(p).partition('mask_rate')[2].partition('/')[0])
         num_factors = ''
-        if algorithm is train.Algorithm.DMF:
+        if algorithm is enums.Algorithm.DMF:
             num_factors = f' (F={str(p).partition("num_factors")[2].partition("/")[0]})'
         data.append(dict(
             mask_rate=mask_rate,
             label=f'{algorithm.value.upper()}{num_factors}',
             rank=np.linalg.matrix_rank(m)
         ))
-    
+
     plot_data = dict()
     for d in data:
         label = d['label']
@@ -148,26 +146,27 @@ def plot_reconstructed_rank(csv_filename, data_set, technique, num_factors=1, gr
     ax.legend(fontsize=FONT_SIZE)
     fig.savefig(f'rank_{data_set.value}_{technique.value}_{csv_filename}.pdf', format='pdf', bbox_inches='tight')
     plt.close(fig)
-    
+
 
 
 def vel_by_time_aneurysm():
     args = dict(data_dir=Path('data'))
     time = 0
-    tf = data.TimeframeAneurysm(time=time, filepath=args['data_dir'] / train.DataSet.ANEURYSM.value / f'vel_2Daneu_crop.{time}.csv')
+    tf = data.TimeframeAneurysm(time=time, filepath=args['data_dir'] / enums.DataSet.ANEURYSM.value / f'vel_2Daneu_crop.{time}.csv')
     return data.VelocityByTimeAneurysm(
         coords=tf.vec_field.coords,
-        filepath_vel_by_time=args['data_dir'] / train.DataSet.ANEURYSM.value / 'vel_by_time_2Daneu_crop.csv',
+        filepath_vel_by_time=args['data_dir'] / enums.DataSet.ANEURYSM.value / 'vel_by_time_2Daneu_crop.csv',
     )
 
 
-def plot_vec_field(name, field: data.VectorField, scale=45, subsample=0.3):
+def plot_vec_field(name, vec_field, scale=45, subsample=0.3):
+    vec_field = vec_field.ravel()
     rng = np.random.RandomState(seed=20210909)
-    subsample = rng.randint(field.coords.x.size, size=int(np.floor(field.coords.x.size * subsample)))
-    x = field.coords.x[subsample]
-    y = field.coords.y[subsample]
-    u = field.velx[subsample]
-    v = field.vely[subsample]
+    subsample = rng.randint(vec_field.coords.x.size, size=int(np.floor(vec_field.coords.x.size * subsample)))
+    x = vec_field.coords.x[subsample]
+    y = vec_field.coords.y[subsample]
+    u = vec_field.velx[subsample]
+    v = vec_field.vely[subsample]
     colors = np.sqrt(u**2 + v**2)
     u = u / colors
     v = v / colors
@@ -178,7 +177,7 @@ def plot_vec_field(name, field: data.VectorField, scale=45, subsample=0.3):
     norm.autoscale(colors)
 
     colormap = cm.viridis
-    # pick your colormap here, refer to 
+    # pick your colormap here, refer to
     # http://matplotlib.org/examples/color/colormaps_reference.html
     # and
     # http://matplotlib.org/users/colormaps.html
@@ -189,7 +188,7 @@ def plot_vec_field(name, field: data.VectorField, scale=45, subsample=0.3):
     plt.close(fig)
 
 
-def rank_over_vel_by_time_columns(name, vel_by_time: data.VelocityByTime, masked=False, mask_rate=0.9):
+def rank_over_vel_by_time_columns(name, vel_by_time, masked=False, mask_rate=0.9):
     if masked:
         mask = model.get_bit_mask(vel_by_time.shape_as_completable(interleaved=False), mask_rate)
         vel_by_time = vel_by_time.transform(lambda vel: vel * mask, interleaved=False)
@@ -207,7 +206,7 @@ def rank_over_vel_by_time_columns(name, vel_by_time: data.VelocityByTime, masked
     plt.close(fig)
 
 
-def rank_over_timeframes(name, vel_by_time: data.VelocityByTime, masked=False, mask_rate=0.9):
+def rank_over_timeframes(name, vel_by_time, masked=False, mask_rate=0.9):
     if masked:
         mask = model.get_bit_mask(vel_by_time.shape_as_completable(interleaved=False), mask_rate)
         vel_by_time = vel_by_time.transform(lambda vel: vel * mask, interleaved=False)
@@ -226,34 +225,34 @@ def rank_over_timeframes(name, vel_by_time: data.VelocityByTime, masked=False, m
 if __name__ == '__main__':
     # aneurysm = vel_by_time_aneurysm()
     # double_gyre = data.double_gyre(num_timeframes=22)
-    # plot_vec_field(f'vf_{train.DataSet.ANEURYSM.value}', aneurysm.timeframe(0).vec_field)
-    # plot_vec_field(f'vf_{train.DataSet.DOUBLE_GYRE.value}', double_gyre.timeframe(0).vec_field)
-    # plot_vec_field(f'vf_all_{train.DataSet.ANEURYSM.value}', aneurysm.timeframe(0).vec_field, scale=100, subsample=1)
-    # plot_vec_field(f'vf_all_{train.DataSet.DOUBLE_GYRE.value}', double_gyre.timeframe(0).vec_field, scale=100, subsample=1)
-    # rank_over_vel_by_time_columns(f'rank_{train.DataSet.ANEURYSM.value}', aneurysm)
-    # rank_over_vel_by_time_columns(f'rank_{train.DataSet.DOUBLE_GYRE.value}', double_gyre)
-    # rank_over_timeframes(f'rank_tf_{train.DataSet.ANEURYSM.value}', aneurysm)
-    # rank_over_timeframes(f'rank_tf_{train.DataSet.DOUBLE_GYRE.value}', double_gyre)
+    # plot_vec_field(f'vf_{enums.DataSet.ANEURYSM.value}', aneurysm.timeframe(0).vec_field)
+    # plot_vec_field(f'vf_{enums.DataSet.DOUBLE_GYRE.value}', double_gyre.timeframe(0).vec_field)
+    # plot_vec_field(f'vf_all_{enums.DataSet.ANEURYSM.value}', aneurysm.timeframe(0).vec_field, scale=100, subsample=1)
+    # plot_vec_field(f'vf_all_{enums.DataSet.DOUBLE_GYRE.value}', double_gyre.timeframe(0).vec_field, scale=100, subsample=1)
+    # rank_over_vel_by_time_columns(f'rank_{enums.DataSet.ANEURYSM.value}', aneurysm)
+    # rank_over_vel_by_time_columns(f'rank_{enums.DataSet.DOUBLE_GYRE.value}', double_gyre)
+    # rank_over_timeframes(f'rank_tf_{enums.DataSet.ANEURYSM.value}', aneurysm)
+    # rank_over_timeframes(f'rank_tf_{enums.DataSet.DOUBLE_GYRE.value}', double_gyre)
     # mask_rate = 0.9
-    # rank_over_vel_by_time_columns(f'rank_masked{mask_rate}_{train.DataSet.ANEURYSM.value}', aneurysm, masked=True, mask_rate=mask_rate)
-    # rank_over_vel_by_time_columns(f'rank_masked{mask_rate}_{train.DataSet.DOUBLE_GYRE.value}', double_gyre, masked=True, mask_rate=mask_rate)
-    # rank_over_timeframes(f'rank_tf_masked{mask_rate}_{train.DataSet.ANEURYSM.value}', aneurysm, masked=True, mask_rate=mask_rate)
-    # rank_over_timeframes(f'rank_tf_masked{mask_rate}_{train.DataSet.DOUBLE_GYRE.value}', double_gyre, masked=True, mask_rate=mask_rate)
+    # rank_over_vel_by_time_columns(f'rank_masked{mask_rate}_{enums.DataSet.ANEURYSM.value}', aneurysm, masked=True, mask_rate=mask_rate)
+    # rank_over_vel_by_time_columns(f'rank_masked{mask_rate}_{enums.DataSet.DOUBLE_GYRE.value}', double_gyre, masked=True, mask_rate=mask_rate)
+    # rank_over_timeframes(f'rank_tf_masked{mask_rate}_{enums.DataSet.ANEURYSM.value}', aneurysm, masked=True, mask_rate=mask_rate)
+    # rank_over_timeframes(f'rank_tf_masked{mask_rate}_{enums.DataSet.DOUBLE_GYRE.value}', double_gyre, masked=True, mask_rate=mask_rate)
     OUTPUT_DIR = Path(__file__).parent / '..' / 'out' / 'output'
     # image_format = 'pdf'
     # kwargs = dict(grid_density=100, num_timeframes=None)
-    for t, d in itertools.product(train.Technique, [train.DataSet.ANEURYSM, train.DataSet.DOUBLE_GYRE]):
+    for t, d in itertools.product(enums.Technique, [enums.DataSet.ANEURYSM, enums.DataSet.DOUBLE_GYRE]):
         plot_reconstructed_rank('reconstructed_velx_by_time.csv', d, t, num_factors=1, grid_density=100, num_timeframes=None)
         plot_reconstructed_rank('reconstructed_vely_by_time.csv', d, t, num_factors=1, grid_density=100, num_timeframes=None)
-    # for t, d in itertools.product(train.Technique, [train.DataSet.ANEURYSM, train.DataSet.DOUBLE_GYRE]):
+    # for t, d in itertools.product(enums.Technique, [enums.DataSet.ANEURYSM, enums.DataSet.DOUBLE_GYRE]):
     #     fig, ax = plt.subplots()
-    #     plot_nmae(ax, d, train.Algorithm.IST, t, **kwargs)
+    #     plot_nmae(ax, d, enums.Algorithm.IST, t, **kwargs)
     #     for nf in [2, 3, 4, 5]:
-    #         plot_nmae(ax, d, train.Algorithm.DMF, t, num_factors=nf, **kwargs)
+    #         plot_nmae(ax, d, enums.Algorithm.DMF, t, num_factors=nf, **kwargs)
     #     plot_name = f'figures/{d.value}_{t.value}'
     #     if kwargs['num_timeframes'] is not None:
     #         plot_name = f'{plot_name}_tf{kwargs["num_timeframes"]}'
-    #     if t is train.Technique.INTERPOLATED:
+    #     if t is enums.Technique.INTERPOLATED:
     #         plot_name = f'{plot_name}_gd{kwargs["grid_density"]}'
     #     ax.legend(fontsize=FONT_SIZE)
     #     fig.savefig(f'{plot_name}.{image_format}', format=image_format, bbox_inches='tight')

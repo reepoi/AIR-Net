@@ -1,37 +1,12 @@
 import argparse
-import enum
 import json
 from pathlib import Path
 
 import numpy as np
 
 from dmf_vector_fields.settings import torch, device
-from dmf_vector_fields import model
-from dmf_vector_fields import data
-
-
-class DataSet(enum.Enum):
-    ANEURYSM = 'aneurysm'
-    FUNC1 = 'func1'
-    FUNC2 = 'func2'
-    DOUBLE_GYRE = 'double-gyre'
-    ARORA2019_5 = 'arora2019-rank5'
-
-
-class DataSetType(enum.Enum):
-    VectorField = 'vector-field'
-    Matrix = 'matrix'
-
-
-class Algorithm(enum.Enum):
-    IST = 'ist'
-    DMF = 'dmf'
-
-
-class Technique(enum.Enum):
-    IDENTITY = 'identity'
-    INTERLEAVED = 'interleaved'
-    INTERPOLATED = 'interpolated'
+from dmf_vector_fields import model, data
+from dmf_vector_fields.enums import DataSet, DataSetType, Algorithm, Technique
 
 
 def get_argparser():
@@ -278,9 +253,7 @@ def run_test(**args):
         if num_timeframes is not None:
             vbt.velx_by_time, vbt.vely_by_time = vbt.velx_by_time[:, :num_timeframes], vbt.vely_by_time[:, :num_timeframes]
     elif ds is DataSet.FUNC1:
-        func_x = lambda t, x, y: np.sin(2 * x + 2 * y)
-        func_y = lambda t, x, y: np.cos(2 * x - 2 * y)
-        vbt = data.velocity_by_time_function(func_x, func_y, [(-2, 2)] * 2, grid_density=100)
+        vbt = data.func1()
     elif ds is DataSet.DOUBLE_GYRE:
         if num_timeframes is None:
             vbt = data.double_gyre()
@@ -426,6 +399,16 @@ def run_matrix_test(**args):
             masked = np.zeros_like(x)
             masked[m.sampled_index_u, m.sampled_index_v] = x[m.sampled_index_u, m.sampled_index_v]
             return masked
+    elif ds is DataSet.ARORA2019_10:
+        m = data.MatrixArora2019(
+            filepath=args['data_dir'] / 'arora2019',
+            rank=10, mask_rate=args['mask_rate']
+        )
+
+        def mask_func(x):
+            masked = np.zeros_like(x)
+            masked[m.sampled_index_u, m.sampled_index_v] = x[m.sampled_index_u, m.sampled_index_v]
+            return masked
 
     # Mask vector field
     # The mask should be created once so that is the same for all experiments
@@ -438,7 +421,6 @@ def run_matrix_test(**args):
     m_masked = m.transform(mask_func)
 
     # Select pre-processing technique and algorithm
-    technique = args['technique']
     save_dir = (
         Path(args['save_dir']) / ds.value / args['algorithm'].value
         / (f'num_factors{args["num_factors"]}' if args['algorithm'] is Algorithm.DMF else '.')
@@ -460,10 +442,10 @@ if __name__ == '__main__':
     args = get_argparser().parse_args().__dict__
     if args['data_set_type'] is DataSetType.VectorField:
         if args['run_all'] == 1:
-            grid_density = [100, 200, 300, 400, 500]
+            grid_density = [100]
             # grid_density = [50]
-            for a in [Algorithm.IST, Algorithm.DMF]:
-            # for a in Algorithm:
+            # for a in [Algorithm.DMF]:
+            for a in Algorithm:
                 args['algorithm'] = a
                 num_factors = [2, 3, 4, 5] if a is Algorithm.DMF else [1]
                 for nf in num_factors:
@@ -478,13 +460,24 @@ if __name__ == '__main__':
                     run_test(**args)
 
                 # Run interpolated
-                # args['technique'] = Technique.INTERPOLATED
-                # for gd in grid_density:
-                #     args['grid_density'] = gd
-                #     for nf in num_factors:
-                #         args['num_factors'] = nf
-                #         run_test(**args)
+                args['technique'] = Technique.INTERPOLATED
+                for gd in grid_density:
+                    args['grid_density'] = gd
+                    for nf in num_factors:
+                        args['num_factors'] = nf
+                        run_test(**args)
         else:
             run_test(**args)
     elif args['data_set_type'] is DataSetType.Matrix:
-        run_matrix_test(**args)
+        if args['run_all'] == 1:
+            for a in Algorithm:
+                args['algorithm'] = a
+                num_factors = [2, 3, 4, 5] if a is Algorithm.DMF else [1]
+                for nf in num_factors:
+                    args['num_factors'] = nf
+
+                    # Run identity
+                    args['technique'] = Technique.IDENTITY
+                    run_matrix_test(**args)
+        else:
+            run_matrix_test(**args)

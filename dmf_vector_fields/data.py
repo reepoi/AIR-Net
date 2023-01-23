@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from dmf_vector_fields.settings import torch, device
+from dmf_vector_fields import plots
 import scipy.interpolate as interp
 
 
@@ -206,17 +207,13 @@ class VectorField:
             *(transform_func(getattr(self, c)) for c in self.components)
         )
 
-
     def save(self, path, plot=True, **quiver_opts):
         save = lambda name, arr: np.savetxt(f'{path}_{name}.csv', arr, delimiter=',')
         self.coords.save(path)
         for c in self.components:
             save(c, getattr(self, c))
         if plot:
-            fig, ax = plt.subplots()
-            ax.quiver(*self.to_tuple(), **quiver_opts)
-            fig.savefig(f'{path}.png')
-            plt.close(fig)
+            plots.plot_vec_field(path, self)
 
 
 @dataclass(frozen=True)
@@ -352,7 +349,6 @@ class VelocityByTime:
         else:
             self.load_data()
 
-
     @property
     def timeframes(self):
         """
@@ -364,16 +360,13 @@ class VelocityByTime:
         """
         return self.velx_by_time.shape[-1]
 
-
     @property
     def timeframe_class(self):
         return Timeframe
 
-
     @property
     def vec_field_class(self):
         return VectorField
-
 
     @property
     def lib(self):
@@ -386,10 +379,8 @@ class VelocityByTime:
         """
         return self.coords.lib
 
-
     def load_data(self):
         raise NotImplementedError('This should be overriden.')
-
 
     def timeframe(self, time):
         """
@@ -413,7 +404,6 @@ class VelocityByTime:
             )
         )
 
-
     def shape_as_completable(self, interleaved=True):
         """
         Returns a matrix for completion.
@@ -433,7 +423,6 @@ class VelocityByTime:
         if interleaved:
             shape = (shape[0] * len(self.components), shape[1])
         return shape
-
 
     def completable_matrices(self, interleaved=True):
         """
@@ -494,7 +483,6 @@ class VelocityByTime:
             **{c: transform_func(m) for c, m in zip(self.components, completable)}
         )
 
-
     def torch_to_numpy(self):
         """
         Convert all data from torch tensors to numpy ndarrays.
@@ -506,7 +494,6 @@ class VelocityByTime:
         transform_func = lambda x: x.detach().cpu().numpy()
         return self.transform(transform_func, interleaved=False, apply_to_coords=True)
 
-
     def numpy_to_torch(self):
         """
         Convert all data from numpy ndarrays to torch tensors.
@@ -517,7 +504,6 @@ class VelocityByTime:
         """
         transform_func = lambda x: torch.tensor(x).to(device)
         return self.transform(transform_func, interleaved=False, apply_to_coords=True)
-
 
     def save(self, path, plot_time=None, **quiver_opts):
         save = lambda name, arr: np.savetxt(f'{path}_{name}.csv', arr, delimiter=',')
@@ -621,6 +607,12 @@ def velocity_by_time_function_3d(func_x, func_y, func_z, grid_bounds, grid_densi
     coords = Coordinates3D(*mesh)
     vec_fields = [VectorField3D(coords=coords, velx=func_x(t, *mesh), vely=func_y(t, *mesh), velz=func_z(t, *mesh)) for t in times]
     return VelocityByTime3D(coords=coords, vec_fields=vec_fields)
+
+
+def func1():
+    func_x = lambda t, x, y: np.sin(2 * x + 2 * y)
+    func_y = lambda t, x, y: np.cos(2 * x - 2 * y)
+    return velocity_by_time_function(func_x, func_y, [(-2, 2)] * 2, grid_density=100)
 
 
 def double_gyre(num_timeframes=11):
@@ -781,14 +773,14 @@ class MatrixArora2019(Matrix):
     def load_data(self):
         rank_path = f'rank{self.rank}'
         masked_path = f'{rank_path}maskrate{self.mask_rate}'
-        self.data = torch.load(self.filepath / f'{rank_path}.pt').numpy()
+        self.data = torch.load(self.filepath / f'{rank_path}.pt').to(dtype=torch.float64).numpy()
         mask_indices, _ = torch.load(self.filepath / f'{masked_path}.pt')
         self.sampled_index_u = mask_indices[0].numpy()
         self.sampled_index_v = mask_indices[1].numpy()
 
     def transform(self, transform_func, apply_to_indices=False):
         """
-        Apply a transformation to the completable data fields of ``Matirx``.
+        Apply a transformation to the completable data fields of ``Matrix``.
 
         Parameters
         ----------

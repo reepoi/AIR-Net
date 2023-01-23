@@ -1,5 +1,6 @@
 from collections import namedtuple
 from dmf_vector_fields.settings import torch, device
+from dmf_vector_fields import opt
 import torch.nn as nn
 import numpy as np
 
@@ -168,6 +169,7 @@ def train(max_epochs, matrix_factor_dimensions, masked_matrix, mask,
 
     model = DeepMatrixFactorization(matrix_factor_dimensions).to(device)
     optimizer = torch.optim.Adam(model.parameters())
+    # optimizer = opt.GroupRMSprop(model.parameters(), 1e-3, eps=1e-4)
 
     model.train()
 
@@ -175,7 +177,7 @@ def train(max_epochs, matrix_factor_dimensions, masked_matrix, mask,
 
         # Compute prediction error
         reconstructed_matrix = model(masked_matrix)
-        loss = 0.5 * l2_sqrd_error(reconstructed_matrix * mask, masked_matrix)
+        loss = 0.5 * mean_sqrd_error(reconstructed_matrix * mask, masked_matrix)
         # loss = norm_mean_abs_error(nonzero_mask(reconstructed_matrix), nonzero_mask(masked_matrix))
 
         # Backpropagation
