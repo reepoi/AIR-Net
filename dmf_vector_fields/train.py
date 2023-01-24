@@ -137,15 +137,14 @@ def run_timeframe(tf, tf_masked, tf_mask, **args):
 
     print(f'Mask Rate: {args["mask_rate"]}')
 
-    mask = tf_mask.as_completable(grid_density=args['grid_density'], method='linear').vec_field.vel_axes[0]
-    mask_torch = no_requires_grad(torch.tensor(mask, dtype=torch.float32).to(device))
     tf_grid_masked_rec = run_trainer(
         tf.vec_field.components,
-        mask_torch,
+        tf_mask.as_completable(grid_density=args['grid_density'], method='linear').numpy_to_torch().vec_field.vel_axes[0],
         report,
         tf_masked_grid,
         args
     )
+
     tf_grid_masked_rec.save(save_dir_timeframe('reconstructed_interpolated'))
     tf_grid_masked_rec.vec_field.interp(coords=tf.vec_field.coords).save(save_dir_timeframe('reconstructed'))
 
@@ -183,12 +182,9 @@ def run_velocity_by_time(vbt, vbt_masked, vbt_mask, **args):
 
     print(f'Mask Rate: {args["mask_rate"]}')
 
-    mask = vbt_mask.as_completable(interleaved=interleaved).vel_by_time_axes[0]
-    mask_torch = no_requires_grad(torch.tensor(mask, dtype=torch.float32).to(device))
-
     vbt_rec = run_trainer(
         vbt.components,
-        mask_torch,
+        vbt_mask.as_completable(interleaved=interleaved).numpy_to_torch().vel_by_time_axes[0],
         report,
         vbt_masked,
         args,
