@@ -20,8 +20,8 @@ class Coordinates:
         if components is None:
             components = auto_component_names(len(axes))
         assert len(axes) == len(components), 'Dimensions do not match.'
-        self.axes = axes
-        self.components = components
+        self.axes = tuple(axes)
+        self.components = tuple(components)
 
     @property
     def lib(self):
@@ -104,8 +104,8 @@ class VectorField:
             components = auto_component_names(len(vel_axes))
         assert len(vel_axes) == len(components), 'Dimensions do not match.'
         self.coords = coords
-        self.vel_axes = vel_axes
-        self.components = components
+        self.vel_axes = tuple(vel_axes)
+        self.components = tuple(components)
 
     @property
     def lib(self):
@@ -208,7 +208,7 @@ class VectorField:
         for n, a in zip(self.components, self.vel_axes):
             save(n, a)
         if plot:
-            plots.plot_vec_field(path, self)
+            plots.plot_vec_field(path, self.ravel())
 
 
 @dataclass
@@ -324,8 +324,8 @@ class VelocityByTime:
         assert len(components) == len(vel_by_time_axes), 'Dimensions do not match'
         self.filepath = filepath
         self.coords = coords
-        self.vel_by_time_axes = vel_by_time_axes
-        self.components = components
+        self.vel_by_time_axes = tuple(vel_by_time_axes)
+        self.components = tuple(components)
 
     @property
     def timeframes(self):
@@ -625,6 +625,4 @@ def interp_griddata(coords: Coordinates, func_values, new_coords: Coordinates, *
     coords = coords.ravel()
     func_values = func_values.ravel()
     method = kwargs.pop('method', 'cubic')
-    import pdb
-    pdb.set_trace()
     return interp.griddata(coords.axes, func_values, new_coords.axes, method=method, **kwargs)

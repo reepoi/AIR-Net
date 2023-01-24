@@ -92,13 +92,14 @@ def run_timeframe(tf, tf_masked, tf_mask, **args):
     def meets_stop_criteria(epoch, loss):
         return loss < args['desired_loss']
 
-    def report(reconstructed_matrix, epoch, loss, last_report: bool, component):
+    def report(reconstructed_matrix, epoch, loss, last_report: bool, component_info):
+        component_idx, component_name = component_info
         vel = data.interp_griddata(tf_grid.vec_field.coords, reconstructed_matrix, tf.vec_field.coords)
-        nmae_against_original = model.norm_mean_abs_error(vel, getattr(tf.vec_field, component), lib=np)
-        print(f'Component: {component}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE: {nmae_against_original:.5e}')
-        record_report_data(report_data, component, epoch, loss.item(), nmae_against_original)
+        nmae_against_original = model.norm_mean_abs_error(vel, tf.vec_field.vel_axes[component_idx], lib=np)
+        print(f'Component: {component_name}, Epoch: {epoch}, Loss: {loss:.5e}, NMAE: {nmae_against_original:.5e}')
+        record_report_data(report_data, component_name, epoch, loss.item(), nmae_against_original)
         if last_report:
-            print(f'\n*** END {component} ***\n')
+            print(f'\n*** END {component_name} ***\n')
 
     report_data = dict()
 
@@ -114,12 +115,12 @@ def run_timeframe(tf, tf_masked, tf_mask, **args):
 
     print(f'Mask Rate: {args["mask_rate"]}')
 
-    training_names = iter(tf.vec_field.components)
-    mask = tf_mask.as_completable(grid_density=args['grid_density'], method='linear').vec_field.velx
+    components = iter(enumerate(tf.vec_field.components))
+    mask = tf_mask.as_completable(grid_density=args['grid_density'], method='linear').vec_field.vel_axes[0]
     mask_torch = no_requires_grad(torch.tensor(mask, dtype=torch.float64).to(device))
     if args['algorithm'] is Algorithm.DMF:
         def trainer(vel):
-            name = next(training_names)
+            c = next(components)
             return model.train(
                 max_epochs=args['max_epochs'],
                 matrix_factor_dimensions=matrix_factor_dimensions,
@@ -127,9 +128,9 @@ def run_timeframe(tf, tf_masked, tf_mask, **args):
                 mask=mask_torch,
                 meets_stop_criteria=meets_stop_criteria,
                 report_frequency=args['report_frequency'],
-                report=lambda *args: report(*args, component=name)
+                report=lambda *args: report(*args, component_info=c)
             )
-        rows, cols = tf_grid.vec_field.velx.shape
+        rows, cols = mask.shape
         min_dim = min(rows, cols)
         matrix_factor_dimensions = [model.Shape(rows=rows, cols=min_dim)]
         matrix_factor_dimensions += [model.Shape(rows=min_dim, cols=min_dim) for _ in range(1, args['num_factors'] - 1)]
@@ -138,13 +139,13 @@ def run_timeframe(tf, tf_masked, tf_mask, **args):
         tf_grid_masked_rec = tf_masked_grid.numpy_to_torch().transform(trainer).torch_to_numpy()
     elif args['algorithm'] is Algorithm.IST:
         def trainer(vel):
-            name = next(training_names)
+            c = next(components)
             return model.iterated_soft_thresholding(
                 masked_matrix=vel,
                 mask=mask_torch,
                 normfac=np.max(mask),
                 report_frequency=args['report_frequency'],
-                report=lambda *args: report(*args, component=name)
+                report=lambda *args: report(*args, component_info=c)
             )
         tf_grid_masked_rec = tf_masked_grid.numpy_to_torch().transform(no_requires_grad).transform(trainer).torch_to_numpy()
 
