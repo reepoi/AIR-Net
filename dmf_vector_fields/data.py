@@ -1,18 +1,27 @@
 from dataclasses import dataclass
+from typing import Tuple
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 from dmf_vector_fields.settings import torch, device
 from dmf_vector_fields import plots
 import scipy.interpolate as interp
 
 
-@dataclass(frozen=True)
-class Coordinates:
-    x: np.ndarray
-    y: np.ndarray
-    components = 'x', 'y'
+def auto_component_names(count: int):
+    return tuple(f'axis{i}' for i in range(count))
 
+
+@dataclass
+class Coordinates:
+    axes: Tuple[np.ndarray]
+    components: Tuple[str]
+
+    def __init__(self, axes, components=None):
+        if components is None:
+            components = auto_component_names(len(axes))
+        assert len(axes) == len(components), 'Dimensions do not match.'
+        self.axes = axes
+        self.components = components
 
     @property
     def lib(self):
@@ -23,8 +32,7 @@ class Coordinates:
         -------
             The torch or numpy module.
         """
-        return torch if type(self.x) is torch.Tensor else np
-
+        return torch if isinstance(self.axes[0], torch.Tensor) else np
 
     def transform(self, transform_func):
         """
@@ -39,8 +47,10 @@ class Coordinates:
         -------
             ``Coordinates``
         """
-        return self.__class__(*(transform_func(getattr(self, c)) for c in self.components))
-
+        return self.__class__(
+            tuple(transform_func(a) for a in self.axes),
+            self.components
+        )
 
     def ravel(self):
         """
@@ -58,18 +68,6 @@ class Coordinates:
         """
         return self.transform(lambda x: x.ravel())
 
-
-    def to_tuple(self):
-        """
-        Lists out all the data fields of Coordinates.
-
-        Returns
-        -------
-            A tuple of all the data fields of Coordinates.
-        """
-        return tuple(getattr(self, c) for c in self.components)
-
-
     def bounding_grid(self, grid_density):
         """
         Build the smallest grid such that the area it encloses
@@ -86,29 +84,28 @@ class Coordinates:
         """
         lib = self.lib
         ls = lambda c: lib.linspace(lib.min(c), lib.max(c), grid_density)
-        mg = lib.meshgrid(*(ls(getattr(self, c)) for c in self.components), indexing='xy')
-        return self.__class__(*mg)
-
+        mg = lib.meshgrid(*(ls(a) for a in self.axes), indexing='xy')
+        return self.__class__(axes=mg, components=self.components)
 
     def save(self, path):
         save = lambda name, arr: np.savetxt(f'{path}_{name}.csv', arr, delimiter=',')
-        for c in self.components:
-            save(c, getattr(self, c))
+        for n, a in zip(self.components, self.axes):
+            save(n, a)
 
 
-@dataclass(frozen=True)
-class Coordinates3D(Coordinates):
-    z: np.ndarray
-    components = *Coordinates.components, 'z'
-
-
-@dataclass(frozen=True)
+@dataclass
 class VectorField:
     coords: Coordinates
-    velx: np.ndarray
-    vely: np.ndarray
-    components = 'velx', 'vely'
+    vel_axes: Tuple[np.ndarray]
+    components: Tuple[str]
 
+    def __init__(self, coords, vel_axes, components=None):
+        if components is None:
+            components = auto_component_names(len(vel_axes))
+        assert len(vel_axes) == len(components), 'Dimensions do not match.'
+        self.coords = coords
+        self.vel_axes = vel_axes
+        self.components = components
 
     @property
     def lib(self):
@@ -120,7 +117,6 @@ class VectorField:
             The torch or numpy module.
         """
         return self.coords.lib
-
 
     def ravel(self):
         """
@@ -134,7 +130,6 @@ class VectorField:
         """
         return self.transform(lambda x: x.ravel(), apply_to_coords=True)
 
-
     def to_tuple(self):
         """
         Lists out all the data fields of a VectorField.
@@ -143,8 +138,7 @@ class VectorField:
         -------
             A tuple of all the data fields of a VectorField.
         """
-        return *self.coords.to_tuple(), *(getattr(self, c) for c in self.components)
-
+        return *self.coords.axes, *self.vel_axes
 
     def interp(self, grid_density=None, coords=None, **interp_opts):
         """
@@ -169,10 +163,11 @@ class VectorField:
         """
         if coords is None:
             coords = self.coords.bounding_grid(grid_density)
-        new_components = (interp_griddata(self.coords, getattr(self, c), coords, **interp_opts)
-                          for c in self.components)
-        return self.__class__(coords, *new_components)
-
+        new_vel_axes = tuple(
+            interp_griddata(self.coords, a, coords, **interp_opts)
+            for a in self.vel_axes
+        )
+        return self.__class__(coords, new_vel_axes, self.components)
 
     def as_completable(self, grid_density, **kwargs):
         """
@@ -184,7 +179,6 @@ class VectorField:
             ``VectorField``
         """
         return self.interp(grid_density=grid_density, fill_value=0, **kwargs)
-
 
     def transform(self, transform_func, apply_to_coords=False):
         """
@@ -203,32 +197,18 @@ class VectorField:
             A VectorField
         """
         return self.__class__(
-            self.coords.transform(transform_func) if apply_to_coords else self.coords,
-            *(transform_func(getattr(self, c)) for c in self.components)
+            coords=self.coords.transform(transform_func) if apply_to_coords else self.coords,
+            vel_axes=tuple(transform_func(a) for a in self.vel_axes),
+            components=self.components
         )
 
-    def save(self, path, plot=True, **quiver_opts):
+    def save(self, path, plot=True):
         save = lambda name, arr: np.savetxt(f'{path}_{name}.csv', arr, delimiter=',')
         self.coords.save(path)
-        for c in self.components:
-            save(c, getattr(self, c))
+        for n, a in zip(self.components, self.vel_axes):
+            save(n, a)
         if plot:
             plots.plot_vec_field(path, self)
-
-
-@dataclass(frozen=True)
-class VectorField3D(VectorField):
-    velz: np.ndarray
-    components = *VectorField.components, 'velz'
-
-
-    def save(self, path, plot=True, **quiver_opts):
-        if plot:
-            fig, ax = plt.subplots()
-            ax = fig.add_subplot(projection='3d')
-            ax.quiver(*self.to_tuple(), **quiver_opts)
-            fig.savefig(f'{path}.png')
-            plt.close(fig)
 
 
 @dataclass
@@ -246,7 +226,6 @@ class Timeframe:
             assert filepath is not None, 'Need a filepath to load_data'
             self.load_data()
 
-
     @property
     def lib(self):
         """
@@ -258,10 +237,8 @@ class Timeframe:
         """
         return self.vec_field.lib
 
-
     def load_data(self):
-        raise NotImplementedError('This should be overriden.')
-
+        raise NotImplementedError('Override this.')
 
     def as_completable(self, grid_density, **kwargs):
         """
@@ -276,7 +253,6 @@ class Timeframe:
             filepath=None,
             vec_field=self.vec_field.as_completable(grid_density, **kwargs)
         )
-
 
     def transform(self, transform_func, apply_to_coords=False):
         """
@@ -298,7 +274,6 @@ class Timeframe:
             vec_field=self.vec_field.transform(transform_func, apply_to_coords=apply_to_coords)
         )
 
-
     def torch_to_numpy(self):
         """
         Convert all data from torch tensors to numpy ndarrays.
@@ -309,7 +284,6 @@ class Timeframe:
         """
         transform_func = lambda x: x.detach().cpu().numpy()
         return self.transform(transform_func, apply_to_coords=True)
-
 
     def numpy_to_torch(self):
         """
@@ -322,32 +296,36 @@ class Timeframe:
         transform_func = lambda x: torch.tensor(x).to(device)
         return self.transform(transform_func, apply_to_coords=True)
 
-
-    def save(self, path, plot=True, **quiver_opts):
-        self.vec_field.save(path, plot=plot, **quiver_opts)
+    def save(self, path, plot=True):
+        self.vec_field.save(path, plot=plot)
 
 
 @dataclass
 class VelocityByTime:
-    filepath_vel_by_time: str
+    filepath: str
     coords: Coordinates
-    velx_by_time: np.ndarray
-    vely_by_time: np.ndarray
-    components = 'velx_by_time', 'vely_by_time'
+    vel_by_time_axes: Tuple[np.ndarray]
+    components: Tuple[str]
 
-    def __init__(self, coords=None, filepath_vel_by_time=None, vec_fields=None, **vel_by_time_args):
+    def __init__(self, coords=None, vel_by_time_axes=None, components=None, filepath=None, vec_fields=None):
+        if components is None:
+            components = auto_component_names(len(coords.components))
+        if vec_fields is not None:
+            assert all(len(components) == len(vf.components) for vf in vec_fields), 'Dimensions do not match'
+            coords = vec_fields[0].coords.ravel()
+            vel_by_time_axes = []
+            for i in range(len(components)):
+                vel_by_time_axes.append(
+                    np.vstack([vf.vel_axes[i].ravel() for vf in vec_fields]).T
+                )
+            vel_by_time_axes = tuple(vel_by_time_axes)
+        elif vel_by_time_axes is None:
+            filepath, coords, vel_by_time_axes, components = self.load_data()
+        assert len(components) == len(vel_by_time_axes), 'Dimensions do not match'
+        self.filepath = filepath
         self.coords = coords
-        self.filepath_vel_by_time = filepath_vel_by_time
-        if all(c in vel_by_time_args for c in self.components):
-            for c in self.components:
-                setattr(self, c, vel_by_time_args[c])
-        elif vec_fields is not None:
-            assert len(self.components) == len(vec_fields[0].components), 'Mixed dimensions.'
-            self.coords = vec_fields[0].coords.ravel()
-            for c_vbt, c_vf in zip(self.components, vec_fields[0].components):
-                setattr(self, c_vbt, np.vstack([getattr(vf, c_vf).ravel() for vf in vec_fields]).T)
-        else:
-            self.load_data()
+        self.vel_by_time_axes = vel_by_time_axes
+        self.components = components
 
     @property
     def timeframes(self):
@@ -358,7 +336,7 @@ class VelocityByTime:
         -------
             int
         """
-        return self.velx_by_time.shape[-1]
+        return self.vel_by_time_axes[0].shape[-1]
 
     @property
     def timeframe_class(self):
@@ -400,55 +378,32 @@ class VelocityByTime:
             filepath=None,
             vec_field=self.vec_field_class(
                 self.coords,
-                *(getattr(self, c)[:, time] for c in self.components)
+                tuple(a[:, time] for a in self.vel_by_time_axes)
             )
         )
 
     def shape_as_completable(self, interleaved=True):
-        """
-        Returns a matrix for completion.
-
-        Parameters
-        ----------
-        interleaved: bool
-            If ``interleaved`` is ``True``, this returns a single matrix
-            with the rows velx and vely for every time step interleaved.
-            Otherwise, velx and vely for every timestep are returned separately.
-
-        Returns
-        -------
-            ``VelocityByTime``
-        """
-        shape = self.velx_by_time.shape
+        axis_shape = self.vel_by_time_axes[0].shape
         if interleaved:
-            shape = (shape[0] * len(self.components), shape[1])
-        return shape
+            return axis_shape[0] * len(self.components), axis_shape[1]
+        return axis_shape
 
-    def completable_matrices(self, interleaved=True):
-        """
-        Returns the matrix or matrices that are completable.
+    def as_completable(self, interleaved=True):
+        if not interleaved:
+            return self
+        dim = len(self.components)
+        completable = self.lib.zeros(self.shape_as_completable(interleaved=interleaved))
+        if self.lib.__name__ == 'torch':
+            completable = completable.to(device)
+        for i, a in enumerate(self.vel_by_time_axes):
+            completable[i::dim] = a
+        return self.__class__(
+            coords=self.coords,
+            vel_by_time_axes=(completable,),
+            components=auto_component_names(1)
+        )
 
-        Parameters
-        ----------
-        interleaved: bool, default True
-            See :func:`VelocityByTime.shape_as_completable`.
-
-        Returns
-        -------
-            np.ndarray
-        """
-        if interleaved:
-            completable = self.lib.zeros(self.shape_as_completable(interleaved=interleaved))
-            if self.lib.__name__ == 'torch':
-                completable = completable.to(device)
-            num_components = len(self.components)
-            for i, c in enumerate(self.components):
-                completable[i::num_components] = getattr(self, c)
-            return completable
-        return tuple(getattr(self, c) for c in self.components)
-
-
-    def transform(self, transform_func, interleaved=True, apply_to_coords=False):
+    def transform(self, transform_func, interleaved=True, apply_to_coords=False, keep_interleaved=False):
         """
         Apply a transformation to the completable data fields of AnuersymVelocityByTime.
 
@@ -463,24 +418,28 @@ class VelocityByTime:
         apply_to_coords: bool, False
             Apply ``transform_func`` to ``VelocityByTime``'s coordinates.
 
+        keep_dims: bool, False
+            Return the interleaved ``VelocityByTime`` if ``interleaved=True``.
+
         Returns
         -------
             ``VelocityByTime``
         """
-        coords = self.coords.transform(transform_func) if apply_to_coords else self.coords
-        completable = self.completable_matrices(interleaved=interleaved)
-        if interleaved:
-            transformed = transform_func(completable)
-            num_components = len(self.components)
-            return self.__class__(
-                filepath_vel_by_time=self.filepath_vel_by_time,
-                coords=coords,
-                **{c: transformed[i::num_components] for i, c in enumerate(self.components)}
-            )
-        return self.__class__(
-            filepath_vel_by_time=self.filepath_vel_by_time,
+        vbt = self.as_completable(interleaved=interleaved)
+        coords = vbt.coords.transform(transform_func) if apply_to_coords else vbt.coords
+        transformed = vbt.__class__(
+            filepath=None,
             coords=coords,
-            **{c: transform_func(m) for c, m in zip(self.components, completable)}
+            vel_by_time_axes=tuple(transform_func(a) for a in vbt.vel_by_time_axes),
+            components=vbt.components
+        )
+        if not interleaved or interleaved and keep_interleaved:
+            return transformed
+        dims = len(self.components)
+        return self.__class__(
+            coords=self.coords,
+            vel_by_time_axes=tuple(transformed.vel_by_time_axes[0][i::dims] for i in range(dims)),
+            components=self.components
         )
 
     def torch_to_numpy(self):
@@ -505,25 +464,13 @@ class VelocityByTime:
         transform_func = lambda x: torch.tensor(x).to(device)
         return self.transform(transform_func, interleaved=False, apply_to_coords=True)
 
-    def save(self, path, plot_time=None, **quiver_opts):
+    def save(self, path, plot_time=None):
         save = lambda name, arr: np.savetxt(f'{path}_{name}.csv', arr, delimiter=',')
         self.coords.save(path)
-        for c in self.components:
-            save(c, getattr(self, c))
+        for n, a in zip(self.components, self.vel_by_time_axes):
+            save(n, a)
         if plot_time is not None:
-            fig, ax = plt.subplots()
-            ax.quiver(*self.timeframe(plot_time).vec_field.to_tuple(), **quiver_opts)
-            fig.savefig(f'{path}.png')
-            plt.close(fig)
-
-
-class VelocityByTime3D(VelocityByTime):
-    velz_by_time: np.ndarray
-    components = *VelocityByTime.components, 'velz_by_time'
-
-    @property
-    def vec_field_class(self):
-        return VectorField3D
+            self.timeframe(plot_time).vec_field.save(path, plot=True)
 
 
 def velocity_by_time_function(func_x, func_y, grid_bounds, grid_density, times=None):
@@ -561,52 +508,9 @@ def velocity_by_time_function(func_x, func_y, grid_bounds, grid_density, times=N
     grid_line0 = np.linspace(*linspace_args(grid_bounds[0]))
     grid_line1 = np.linspace(*linspace_args(grid_bounds[1]))
     mesh = np.meshgrid(grid_line0, grid_line1)
-    coords = Coordinates(*mesh).ravel()
-    vec_fields = [VectorField(coords=coords, velx=func_x(t, *mesh), vely=func_y(t, *mesh)) for t in times]
+    coords = Coordinates(axes=mesh).ravel()
+    vec_fields = [VectorField(coords=coords, vel_axes=(func_x(t, *mesh), func_y(t, *mesh))) for t in times]
     return VelocityByTime(coords=coords, vec_fields=vec_fields)
-
-
-def velocity_by_time_function_3d(func_x, func_y, func_z, grid_bounds, grid_density, times=None):
-    """
-    Helper function to create a ``VelocityByTime3D`` whose components
-    are defined by known functions.
-
-    Parameters
-    ----------
-    func_x: funcition(t, x, y, z)
-        The function defining the x-component of a vector field. It
-        must be vectorized with respect to its spatial coordinates (x, y, z).
-
-    func_y: funcition(t, x, y, z)
-        The function defining the y-component of a vector field. It
-        must be vectorized with respect to its spatial coordinates (x, y, z).
-
-    func_z: funcition(t, x, y, z)
-        The function defining the z-component of a vector field. It
-        must be vectorized with respect to its spatial coordinates (x, y, z).
-
-    grid_bounds: tuple(float, float)
-        The bounds of the grid to evaluate the vector field functions on.
-        The grid is a cube.
-
-    grid_density: int
-        The number of points the grid has along any edge.
-
-    times: list(float), default [0]
-        A list of times to evaluate the vector field functions at.
-
-    Returns
-    -------
-        ``VelocityByTime3D``
-    """
-    if times is None:
-        times = [0]
-    b_x, b_y = grid_bounds
-    grid_line = np.linspace(b_x, b_y, grid_density)
-    mesh = np.meshgrid(grid_line, grid_line, grid_line)
-    coords = Coordinates3D(*mesh)
-    vec_fields = [VectorField3D(coords=coords, velx=func_x(t, *mesh), vely=func_y(t, *mesh), velz=func_z(t, *mesh)) for t in times]
-    return VelocityByTime3D(coords=coords, vec_fields=vec_fields)
 
 
 def func1():
@@ -645,16 +549,10 @@ class TimeframeAneurysm(Timeframe):
         data = data.groupby(level=data.index.names).first() # remove duplicate (x, y)
         self.vec_field = VectorField(
             coords = Coordinates(
-                x=data.index.get_level_values('x').to_numpy(),
-                y=data.index.get_level_values('y').to_numpy()
+                axes=(data.index.get_level_values('x').to_numpy(), data.index.get_level_values('y').to_numpy())
             ),
-            velx=data['velx'].to_numpy(),
-            vely=data['vely'].to_numpy()
+            vel_axes=(data['velx'].to_numpy(), data['vely'].to_numpy())
         )
-
-
-    def save(self, path, plot=True):
-        super().save(path, plot=True, scale=400)
 
 
 class VelocityByTimeAneurysm(VelocityByTime):
@@ -662,171 +560,42 @@ class VelocityByTimeAneurysm(VelocityByTime):
     def timeframe_class(self):
         return TimeframeAneurysm
 
-
     def load_data(self):
         # duplicate point at row 39, 41
         # From t = 0
         # x   y   velx      vely
         # 1.9 0.0 -0.000152 -8.057502e-07
-        data = pd.read_csv(self.filepath_vel_by_time, header=None)
+        data = pd.read_csv(self.filepath, header=None)
         # data = data.drop_duplicates() # remove 2 duplicate rows
         data = data.to_numpy()
         self.velx_by_time = data[0::2]
         self.vely_by_time = data[1::2]
 
-
     @classmethod
     def load_from(cls, path):
         load = lambda n: np.loadtxt(f'{path}_{n}.csv', delimiter=',')
         return cls(
-            coords=Coordinates(*(load(c) for c in Coordinates.components)),
-            velx_by_time=load('velx_by_time'),
-            vely_by_time=load('vely_by_time')
+            coords=Coordinates(axes=tuple(load(c) for c in Coordinates.components)),
+            vel_by_time_axes=(load('velx_by_time'), load('vely_by_time'))
         )
-
-
-    def save(self, path, plot_time=None):
-        super().save(path, plot_time=plot_time, scale=400)
 
 
 @dataclass
-class Matrix:
-    filepath: str
-    data: np.ndarray
-
-    def __init__(self, filepath, data=None):
-        self.filepath = filepath
-        if data is None:
-            self.load_data()
-        else:
-            self.data = data
-
+class MatrixArora2019(Timeframe):
     def load_data(self):
-        raise NotImplementedError
+        velx = torch.load(self.filepath).to(dtype=torch.float64).numpy().ravel()
+        width, height = range(velx.shape[0]), range(velx.shape[1])
+        coords = Coordinates(axes=np.meshgrid(width, height)).ravel()
+        self.vec_field = VectorField(coords=coords, velx=velx, vely=None)
 
-    def transform(self, transform_func):
-        """
-        Apply a transformation to the completable data fields of ``Matirx``.
-
-        Parameters
-        ----------
-        transform_func: function(ndarray)
-            The transformation to apply.
-
-        Returns
-        -------
-            ``Matrix``
-        """
-        return self.__class__(
-            filepath=None,
-            data=transform_func(self.data)
-        )
-
-
-    def torch_to_numpy(self):
-        """
-        Convert all data from torch tensors to numpy ndarrays.
-
-        Returns
-        -------
-            ``Matrix`` whose data are numpy ndarrays.
-        """
-        transform_func = lambda x: x.detach().cpu().numpy()
-        return self.transform(transform_func)
-
-
-    def numpy_to_torch(self):
-        """
-        Convert all data from numpy ndarrays to torch tensors.
-
-        Returns
-        -------
-            ``Matrix`` whose data are torch tensors.
-        """
-        transform_func = lambda x: torch.tensor(x).to(device)
-        return self.transform(transform_func)
-
-    def save(self, path):
-        save = lambda n, arr: np.savetxt(f'{path}_{n}.csv', arr, delimiter=',')
-        save('matrix_data', self.data)
-
-
-@dataclass
-class MatrixArora2019(Matrix):
-    rank: int
-    mask_rate: float
-    sampled_index_u: np.ndarray
-    sampled_index_v: np.ndarray
-
-    def __init__(self, filepath, rank, mask_rate, data=None,
-                 sampled_index_u=None, sampled_index_v=None):
-        self.filepath = filepath
-        self.rank = rank
-        self.mask_rate = mask_rate
-        if data is None:
-            self.load_data()
-        else:
-            self.data = data
-            self.sampled_index_u = sampled_index_u
-            self.sampled_index_v = sampled_index_v
-
-    def load_data(self):
-        rank_path = f'rank{self.rank}'
-        masked_path = f'{rank_path}maskrate{self.mask_rate}'
-        self.data = torch.load(self.filepath / f'{rank_path}.pt').to(dtype=torch.float64).numpy()
-        mask_indices, _ = torch.load(self.filepath / f'{masked_path}.pt')
-        self.sampled_index_u = mask_indices[0].numpy()
-        self.sampled_index_v = mask_indices[1].numpy()
-
-    def transform(self, transform_func, apply_to_indices=False):
-        """
-        Apply a transformation to the completable data fields of ``Matrix``.
-
-        Parameters
-        ----------
-        transform_func: function(ndarray)
-            The transformation to apply.
-
-        Returns
-        -------
-            ``Matrix``
-        """
-        miu = self.sampled_index_u
-        miv = self.sampled_index_v
-        if apply_to_indices:
-            miu = transform_func(miu)
-            miv = transform_func(miv)
-        return self.__class__(
-            filepath=None,
-            data=transform_func(self.data),
-            rank=self.rank,
-            mask_rate=self.mask_rate,
-            sampled_index_u=miu,
-            sampled_index_v=miv
-        )
-
-    def torch_to_numpy(self):
-        """
-        Convert all data from torch tensors to numpy ndarrays.
-
-        Returns
-        -------
-            ``Matrix`` whose data are numpy ndarrays.
-        """
-        transform_func = lambda x: x.detach().cpu().numpy()
-        return self.transform(transform_func, apply_to_indices=True)
-
-
-    def numpy_to_torch(self):
-        """
-        Convert all data from numpy ndarrays to torch tensors.
-
-        Returns
-        -------
-            ``Matrix`` whose data are torch tensors.
-        """
-        transform_func = lambda x: torch.tensor(x).to(device)
-        return self.transform(transform_func, apply_to_indices=True)
+    def saved_mask(self, mask_rate):
+        fp = self.filepath
+        saved_mask_path = fp.parent / f'{fp.stem}maskrate{mask_rate}.pt'
+        (idx_u, idx_v), _ = torch.load(saved_mask_path)
+        idx_u, idx_v = idx_u.numpy(), idx_v.numpy()
+        mask = np.zeros_like(self.vec_field.velx)
+        mask[idx_u, idx_v] = 1
+        return mask
 
 
 def interp_griddata(coords: Coordinates, func_values, new_coords: Coordinates, **kwargs):
@@ -855,7 +624,7 @@ def interp_griddata(coords: Coordinates, func_values, new_coords: Coordinates, *
     """
     coords = coords.ravel()
     func_values = func_values.ravel()
-    xy = coords.x, coords.y
-    new_xy = new_coords.x, new_coords.y
     method = kwargs.pop('method', 'cubic')
-    return interp.griddata(xy, func_values, new_xy, method=method, **kwargs)
+    import pdb
+    pdb.set_trace()
+    return interp.griddata(coords.axes, func_values, new_coords.axes, method=method, **kwargs)

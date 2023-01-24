@@ -148,7 +148,6 @@ def plot_reconstructed_rank(csv_filename, data_set, technique, num_factors=1, gr
     plt.close(fig)
 
 
-
 def vel_by_time_aneurysm():
     args = dict(data_dir=Path('data'))
     time = 0
@@ -160,13 +159,16 @@ def vel_by_time_aneurysm():
 
 
 def plot_vec_field(name, vec_field, scale=45, subsample=0.3):
+    assert len(vec_field.components) == 2, 'Can only plot 2D vector fields'
+    x, y = vec_field.coords.axes
+    velx, vely = vec_field.vel_axes
     vec_field = vec_field.ravel()
     rng = np.random.RandomState(seed=20210909)
-    subsample = rng.randint(vec_field.coords.x.size, size=int(np.floor(vec_field.coords.x.size * subsample)))
-    x = vec_field.coords.x[subsample]
-    y = vec_field.coords.y[subsample]
-    u = vec_field.velx[subsample]
-    v = vec_field.vely[subsample]
+    subsample = rng.randint(x.size, size=int(np.floor(y.size * subsample)))
+    x = x[subsample]
+    y = y[subsample]
+    u = velx[subsample]
+    v = vely[subsample]
     colors = np.sqrt(u**2 + v**2)
     u = u / colors
     v = v / colors

@@ -10,11 +10,6 @@ class DataSet(enum.Enum):
     ARORA2019_10 = 'arora2019-rank10'
 
 
-class DataSetType(enum.Enum):
-    VectorField = 'vector-field'
-    Matrix = 'matrix'
-
-
 class Algorithm(enum.Enum):
     IST = 'ist'
     DMF = 'dmf'
