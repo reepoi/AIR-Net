@@ -583,7 +583,7 @@ class VelocityByTimeAneurysm(VelocityByTime):
 @dataclass
 class MatrixArora2019(Timeframe):
     def load_data(self):
-        velx = torch.load(self.filepath).to(dtype=torch.float64).numpy().ravel()
+        velx = torch.load(self.filepath).to(dtype=torch.float32).numpy().ravel()
         width, height = range(velx.shape[0]), range(velx.shape[1])
         coords = Coordinates(axes=np.meshgrid(width, height)).ravel()
         self.vec_field = VectorField(coords=coords, velx=velx, vely=None)

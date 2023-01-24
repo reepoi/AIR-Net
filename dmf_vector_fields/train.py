@@ -138,7 +138,7 @@ def run_timeframe(tf, tf_masked, tf_mask, **args):
     print(f'Mask Rate: {args["mask_rate"]}')
 
     mask = tf_mask.as_completable(grid_density=args['grid_density'], method='linear').vec_field.vel_axes[0]
-    mask_torch = no_requires_grad(torch.tensor(mask, dtype=torch.float64).to(device))
+    mask_torch = no_requires_grad(torch.tensor(mask, dtype=torch.float32).to(device))
     tf_grid_masked_rec = run_trainer(
         tf.vec_field.components,
         mask_torch,
@@ -184,7 +184,7 @@ def run_velocity_by_time(vbt, vbt_masked, vbt_mask, **args):
     print(f'Mask Rate: {args["mask_rate"]}')
 
     mask = vbt_mask.as_completable(interleaved=interleaved).vel_by_time_axes[0]
-    mask_torch = no_requires_grad(torch.tensor(mask, dtype=torch.float64).to(device))
+    mask_torch = no_requires_grad(torch.tensor(mask, dtype=torch.float32).to(device))
 
     vbt_rec = run_trainer(
         vbt.components,
@@ -207,6 +207,8 @@ def skip_test(vbt, **args):
     if tq in {Technique.IDENTITY, Technique.INTERLEAVED}:
         if vbt.timeframes < args['min_time_identity_interleaved']:
             return 'data set has too few timeframes. See --min-time-identity-interleaved'
+        if tq is Technique.INTERLEAVED and vbt.vel_by_time_axes == 1:
+            return 'data set has too few dimensions'
     if tq is Technique.INTERPOLATED:
         if len(vbt.components) >= 3:
             return 'data sets with 3 or more spatial dimensions not supported by Technique.INTERPOLATED'

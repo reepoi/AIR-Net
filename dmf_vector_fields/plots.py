@@ -90,7 +90,7 @@ def plot_nmae(ax, data_set, algorithm, technique, num_factors=1, grid_density=10
     label = algorithm.value.upper()
     if algorithm is enums.Algorithm.DMF:
         label = f'{label} (F={num_factors})'
-    data = lambda c: np.log10(nmae[c].to_numpy() if not isinstance(nmae[c], np.float64) else nmae[c])
+    data = lambda c: np.log10(nmae[c].to_numpy() if not isinstance(nmae[c], np.float32) else nmae[c])
     ax.plot(
         nmae['mask_rate'], sum(data(c) for c in ['velx_by_time', 'vely_by_time']),
         marker='o', linestyle='dashed',
