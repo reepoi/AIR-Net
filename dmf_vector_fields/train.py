@@ -213,11 +213,8 @@ def skip_test(vbt, **args):
     return ''
 
 
-mask = None
-def run_test(**args):
-    # Select vector field
-    # The mask should be created once so that is the same for all experiments
-    global mask
+def choose_dataset(args):
+    mask = None
     ds = args['data_set']
     num_timeframes = args['timeframes']
     if ds is DataSet.ANEURYSM:
@@ -249,20 +246,12 @@ def run_test(**args):
         vbt = data.VelocityByTime(vec_fields=[tf.vec_field])
         # set the mask to the saved mask
         mask = tf.saved_mask('0.675')
+    return vbt, mask
 
-    # Check if test should be skipped
-    if (msg := skip_test(vbt, **args)) != '':
-        print(f'TEST SKIPPED: {msg}.')
-        return
 
-    # Mask vector field
-    if mask is None:
-        mask = model.get_bit_mask(vbt.shape_as_completable(interleaved=False), args['mask_rate'])
-    dim = len(vbt.components)
-    vbt_mask = data.VelocityByTime(coords=vbt.coords, vel_by_time_axes=(mask,) * dim, components=('mask',) * dim)
-    vbt_masked = vbt.transform(lambda vel: vel * mask, interleaved=False)
-
-    # Select pre-processing technique and algorithm
+def get_task_by_technique(vbt, vbt_masked, vbt_mask, args):
+    ds = args['data_set']
+    num_timeframes = args['timeframes']
     technique = args['technique']
     data_set_name = ds.value
     if num_timeframes:
@@ -299,6 +288,32 @@ def run_test(**args):
             vbt_rec = vbt.__class__(coords=vbt.coords, vec_fields=[tf.vec_field.interp(coords=vbt.coords) for tf in tfs])
             vbt_rec.save(save_dir / 'reconstructed', plot_time=0)
             return vbt_rec
+    return save_dir, task
+
+
+mask = None
+
+
+def run_test(**args):
+    # Select vector field
+    # The mask should be created once so that is the same for all experiments
+    global mask
+    vbt, mask = choose_dataset(args)
+
+    # Check if test should be skipped
+    if (msg := skip_test(vbt, **args)) != '':
+        print(f'TEST SKIPPED: {msg}.')
+        return
+
+    # Mask vector field
+    if mask is None:
+        mask = model.get_bit_mask(vbt.shape_as_completable(interleaved=False), args['mask_rate'])
+    dim = len(vbt.components)
+    vbt_mask = data.VelocityByTime(coords=vbt.coords, vel_by_time_axes=(mask,) * dim, components=('mask',) * dim)
+    vbt_masked = vbt.transform(lambda vel: vel * mask, interleaved=False)
+
+    # Select pre-processing technique and algorithm
+    save_dir, task = get_task_by_technique(vbt, vbt_masked, vbt_mask, args)
 
     # Create save_dir
     save_dir.mkdir(parents=True, exist_ok=True)
