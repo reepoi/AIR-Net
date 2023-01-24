@@ -575,7 +575,7 @@ class VelocityByTimeAneurysm(VelocityByTime):
     def load_from(cls, path):
         load = lambda n: np.loadtxt(f'{path}_{n}.csv', delimiter=',')
         return cls(
-            coords=Coordinates(axes=tuple(load(c) for c in Coordinates.components)),
+            coords=Coordinates(axes=(load('x'), load('y'))),
             vel_by_time_axes=(load('velx_by_time'), load('vely_by_time'))
         )
 

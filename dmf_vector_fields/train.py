@@ -327,7 +327,7 @@ def run_test(**args):
                 tfs.append(run_timeframe(vbt.timeframe(t), vbt_masked.timeframe(t), vbt_mask.timeframe(t), **args))
                 print(f'***** END TIME {t} *****')
             vbt_rec = vbt.__class__(coords=vbt.coords, vec_fields=[tf.vec_field.interp(coords=vbt.coords) for tf in tfs])
-            vbt_rec.save(save_dir / 'reconstructed')
+            vbt_rec.save(save_dir / 'reconstructed', plot_time=0)
             return vbt_rec
 
     # Create save_dir
