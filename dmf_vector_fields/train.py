@@ -48,28 +48,6 @@ def get_argparser():
     return parser
 
 
-def num_large_singular_values(matrix, threshold=5e-1):
-    """
-    Returns the number of singular values greater than some
-    threshold value.
-
-    Parameters
-    ----------
-    matrix: numeric
-        The matrix to be analyzed.
-
-    threshold: scalar, default 5e-1
-        The threshold that a singular value must be greater
-        than to be counted.
-
-    Returns
-    -------
-        int
-    """
-    u, s, vh = np.linalg.svd(matrix, full_matrices=False)
-    return np.sum(np.where(s > threshold, 1, 0))
-
-
 def no_requires_grad(tensor):
     tensor.requires_grad = False
     return tensor
@@ -88,10 +66,58 @@ def record_report_data(report_data, component, epoch, loss, nmae):
     report_data[component] = rd
 
 
-def run_timeframe(tf, tf_masked, tf_mask, **args):
-    def meets_stop_criteria(epoch, loss):
-        return loss < args['desired_loss']
+def meets_stop_criteria(epoch, loss):
+    return loss < args['desired_loss']
 
+
+def run_trainer(components, mask, report, to_train, args, transform_kwargs=None):
+    transform_kwargs = transform_kwargs or {}
+    components = enumerate(components)
+    a = args['algorithm']
+    if a is Algorithm.IST:
+        def trainer(vel):
+            c = next(components)
+            return model.iterated_soft_thresholding(
+                masked_matrix=vel,
+                mask=mask,
+                normfac=torch.max(mask),
+                report_frequency=args['report_frequency'],
+                report=lambda *args: report(*args, component_info=c)
+            )
+        return (
+            to_train
+            .numpy_to_torch()
+            .transform(no_requires_grad)
+            .transform(trainer, **transform_kwargs)
+            .torch_to_numpy()
+        )
+    elif a is Algorithm.DMF:
+        def trainer(vel):
+            c = next(components)
+            return model.train(
+                max_epochs=args['max_epochs'],
+                matrix_factor_dimensions=matrix_factor_dimensions,
+                masked_matrix=vel,
+                mask=mask,
+                meets_stop_criteria=meets_stop_criteria,
+                report_frequency=args['report_frequency'],
+                report=lambda *args: report(*args, component_info=c)
+            )
+        rows, cols = mask.shape
+        min_dim = min(rows, cols)
+        matrix_factor_dimensions = [model.Shape(rows=rows, cols=min_dim)]
+        matrix_factor_dimensions += [model.Shape(rows=min_dim, cols=min_dim) for _ in range(1, args['num_factors'] - 1)]
+        matrix_factor_dimensions.append(model.Shape(rows=min_dim, cols=cols))
+        print(matrix_factor_dimensions)
+        return (
+            to_train
+            .numpy_to_torch()
+            .transform(trainer, **transform_kwargs)
+            .torch_to_numpy()
+        )
+
+
+def run_timeframe(tf, tf_masked, tf_mask, **args):
     def report(reconstructed_matrix, epoch, loss, last_report: bool, component_info):
         component_idx, component_name = component_info
         vel = data.interp_griddata(tf_grid.vec_field.coords, reconstructed_matrix, tf.vec_field.coords)
@@ -105,50 +131,21 @@ def run_timeframe(tf, tf_masked, tf_mask, **args):
 
     save_dir_timeframe = lambda p: f'{args["save_dir"]}/{p}.{tf.time}'
 
-    # tf.save(save_dir_timeframe('original'))
     tf_grid = tf.as_completable(grid_density=args['grid_density'])
-    # tf_grid.save(save_dir_timeframe('interpolated'))
 
-    # tf_masked.save(save_dir_timeframe('masked'))
     tf_masked_grid = tf_masked.as_completable(grid_density=args['grid_density'])
-    # tf_masked_grid.save(save_dir_timeframe('masked_interpolated'))
 
     print(f'Mask Rate: {args["mask_rate"]}')
 
-    components = iter(enumerate(tf.vec_field.components))
     mask = tf_mask.as_completable(grid_density=args['grid_density'], method='linear').vec_field.vel_axes[0]
     mask_torch = no_requires_grad(torch.tensor(mask, dtype=torch.float64).to(device))
-    if args['algorithm'] is Algorithm.DMF:
-        def trainer(vel):
-            c = next(components)
-            return model.train(
-                max_epochs=args['max_epochs'],
-                matrix_factor_dimensions=matrix_factor_dimensions,
-                masked_matrix=vel,
-                mask=mask_torch,
-                meets_stop_criteria=meets_stop_criteria,
-                report_frequency=args['report_frequency'],
-                report=lambda *args: report(*args, component_info=c)
-            )
-        rows, cols = mask.shape
-        min_dim = min(rows, cols)
-        matrix_factor_dimensions = [model.Shape(rows=rows, cols=min_dim)]
-        matrix_factor_dimensions += [model.Shape(rows=min_dim, cols=min_dim) for _ in range(1, args['num_factors'] - 1)]
-        matrix_factor_dimensions.append(model.Shape(rows=min_dim, cols=cols))
-        print(matrix_factor_dimensions)
-        tf_grid_masked_rec = tf_masked_grid.numpy_to_torch().transform(trainer).torch_to_numpy()
-    elif args['algorithm'] is Algorithm.IST:
-        def trainer(vel):
-            c = next(components)
-            return model.iterated_soft_thresholding(
-                masked_matrix=vel,
-                mask=mask_torch,
-                normfac=np.max(mask),
-                report_frequency=args['report_frequency'],
-                report=lambda *args: report(*args, component_info=c)
-            )
-        tf_grid_masked_rec = tf_masked_grid.numpy_to_torch().transform(no_requires_grad).transform(trainer).torch_to_numpy()
-
+    tf_grid_masked_rec = run_trainer(
+        tf.vec_field.components,
+        mask_torch,
+        report,
+        tf_masked_grid,
+        args
+    )
     tf_grid_masked_rec.save(save_dir_timeframe('reconstructed_interpolated'))
     tf_grid_masked_rec.vec_field.interp(coords=tf.vec_field.coords).save(save_dir_timeframe('reconstructed'))
 
@@ -158,9 +155,6 @@ def run_timeframe(tf, tf_masked, tf_mask, **args):
 
 
 def run_velocity_by_time(vbt, vbt_masked, vbt_mask, **args):
-    def meets_stop_criteria(epoch, loss):
-        return loss < args['desired_loss']
-
     def report(reconstructed_matrix, epoch, loss, last_report: bool, component_info):
         component_idx, component_name = component_info
         if interleaved:
@@ -187,43 +181,19 @@ def run_velocity_by_time(vbt, vbt_masked, vbt_mask, **args):
     interleaved = args['interleaved']
     save_dir = lambda p: f'{args["save_dir"]}/{p}'
 
-    # vbt.save(save_dir('original'), plot_time=plot_time)
-    # vbt_masked.save(save_dir('masked'), plot_time=plot_time)
-
     print(f'Mask Rate: {args["mask_rate"]}')
 
-    components = iter(enumerate(vbt.components))
     mask = vbt_mask.as_completable(interleaved=interleaved).vel_by_time_axes[0]
     mask_torch = no_requires_grad(torch.tensor(mask, dtype=torch.float64).to(device))
-    if args['algorithm'] is Algorithm.DMF:
-        def trainer(vel):
-            c = next(components)
-            return model.train(
-                max_epochs=args['max_epochs'],
-                matrix_factor_dimensions=matrix_factor_dimensions,
-                masked_matrix=vel,
-                mask=mask_torch,
-                meets_stop_criteria=meets_stop_criteria,
-                report_frequency=args['report_frequency'],
-                report=lambda *args: report(*args, component_info=c)
-            )
-        rows, cols = mask.shape
-        min_dim = min(rows, cols)
-        matrix_factor_dimensions = [model.Shape(rows=rows, cols=min_dim)]
-        matrix_factor_dimensions += [model.Shape(rows=min_dim, cols=min_dim) for _ in range(1, args['num_factors'] - 1)]
-        matrix_factor_dimensions.append(model.Shape(rows=min_dim, cols=cols))
-        print(matrix_factor_dimensions)
-        vbt_rec = vbt_masked.numpy_to_torch().transform(trainer, interleaved=interleaved).torch_to_numpy()
-    elif args['algorithm'] is Algorithm.IST:
-        def trainer(vel):
-            c = next(components)
-            return model.iterated_soft_thresholding(
-                masked_matrix=vel,
-                mask=mask_torch,
-                report_frequency=args['report_frequency'],
-                report=lambda *args: report(*args, component_info=c)
-            )
-        vbt_rec = vbt_masked.numpy_to_torch().transform(no_requires_grad).transform(trainer, interleaved=interleaved).torch_to_numpy()
+
+    vbt_rec = run_trainer(
+        vbt.components,
+        mask_torch,
+        report,
+        vbt_masked,
+        args,
+        transform_kwargs=dict(interleaved=interleaved)
+    )
 
     vbt_rec.save(save_dir('reconstructed'), plot_time=plot_time)
 
