@@ -373,13 +373,22 @@ class VelocityByTime:
         -------
             ``Timeframe`` with ``filepath = None``.
         """
+        import pdb
+        pdb.set_trace()
+        vel_axes = []
+        for a in self.vel_by_time_axes:
+            if a.ndim == 1:
+                vel_axes.append(a)
+            else:
+                vel_axes.append(a[:, time])
         return self.timeframe_class(
             time=time,
             filepath=None,
-            vec_field=self.vec_field_class(
+            vec_field=self.timeframe_class.vec_field_class(
                 self.coords,
-                tuple(a[:, time] for a in self.vel_by_time_axes)
-            )
+                vel_axes
+            ),
+            **self.timeframe_kwargs
         )
 
     def shape_as_completable(self, interleaved=True):
@@ -400,7 +409,8 @@ class VelocityByTime:
         return self.__class__(
             coords=self.coords,
             vel_by_time_axes=(completable,),
-            components=auto_component_names(1)
+            components=auto_component_names(1),
+            timeframe_class=self.timeframe_class
         )
 
     def transform(self, transform_func, interleaved=True, apply_to_coords=False, keep_interleaved=False):
@@ -568,34 +578,49 @@ class VelocityByTimeAneurysm(VelocityByTime):
         data = pd.read_csv(self.filepath, header=None)
         # data = data.drop_duplicates() # remove 2 duplicate rows
         data = data.to_numpy()
-        self.velx_by_time = data[0::2]
-        self.vely_by_time = data[1::2]
+        self.vel_by_time_axes = data[0::2], data[1::2]
 
     @classmethod
     def load_from(cls, path):
-        load = lambda n: np.loadtxt(f'{path}_{n}.csv', delimiter=',')
+        def load(n): return np.loadtxt(f'{path}_{n}.csv', delimiter=',')
         return cls(
             coords=Coordinates(axes=(load('x'), load('y'))),
             vel_by_time_axes=(load('velx_by_time'), load('vely_by_time'))
         )
 
 
-@dataclass
 class MatrixArora2019(Timeframe):
+    data_shape: Tuple[int]
+
+    def __init__(self, *args, **kwargs):
+        self.data_shape = None
+        super().__init__(*args, **kwargs)
+
     def load_data(self):
-        velx = torch.load(self.filepath).to(dtype=torch.float32).numpy().ravel()
-        width, height = range(velx.shape[0]), range(velx.shape[1])
+        data = torch.load(self.filepath).to(dtype=torch.float32).numpy()
+        self.data_shape = data.shape
+        width, height = range(data.shape[0]), range(data.shape[1])
         coords = Coordinates(axes=np.meshgrid(width, height)).ravel()
-        self.vec_field = VectorField(coords=coords, velx=velx, vely=None)
+        self.vec_field = VectorField(coords=coords, vel_axes=(data,))
 
     def saved_mask(self, mask_rate):
         fp = self.filepath
         saved_mask_path = fp.parent / f'{fp.stem}maskrate{mask_rate}.pt'
         (idx_u, idx_v), _ = torch.load(saved_mask_path)
         idx_u, idx_v = idx_u.numpy(), idx_v.numpy()
-        mask = np.zeros_like(self.vec_field.velx)
+        mask = np.zeros(self.data_shape)
         mask[idx_u, idx_v] = 1
-        return mask
+        return mask.ravel()
+
+    def save(self, path, plot=True):
+        self.vec_field.save(path, plot=False)
+        if plot:
+            # vf = self.vec_field.interp(coords=self.vec_field.coords.transform(lambda x: x.reshape(self.data_shape)))
+            arr = self.vec_field.vel_axes[0].reshape(self.data_shape)
+            plots.plot_heatmap(path, arr)
+
+    def get_kwargs(self):
+        return dict(data_shape=self.data_shape)
 
 
 def interp_griddata(coords: Coordinates, func_values, new_coords: Coordinates, **kwargs):
