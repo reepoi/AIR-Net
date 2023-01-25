@@ -308,19 +308,20 @@ class VelocityByTime:
     components: Tuple[str]
 
     def __init__(self, coords=None, vel_by_time_axes=None, components=None, filepath=None, vec_fields=None):
-        if components is None:
-            components = auto_component_names(len(coords.components))
         if vec_fields is not None:
-            assert all(len(components) == len(vf.components) for vf in vec_fields), 'Dimensions do not match'
             coords = vec_fields[0].coords.ravel()
+            dims = len(vec_fields[0].vel_axes)
+            assert all(dims == len(vf.vel_axes) for vf in vec_fields)
             vel_by_time_axes = []
-            for i in range(len(components)):
+            for i in range(dims):
                 vel_by_time_axes.append(
                     np.vstack([vf.vel_axes[i].ravel() for vf in vec_fields]).T
                 )
             vel_by_time_axes = tuple(vel_by_time_axes)
         elif vel_by_time_axes is None:
             filepath, coords, vel_by_time_axes, components = self.load_data()
+        if components is None:
+            components = auto_component_names(len(vel_by_time_axes))
         assert len(components) == len(vel_by_time_axes), 'Dimensions do not match'
         self.filepath = filepath
         self.coords = coords
@@ -373,8 +374,6 @@ class VelocityByTime:
         -------
             ``Timeframe`` with ``filepath = None``.
         """
-        import pdb
-        pdb.set_trace()
         vel_axes = []
         for a in self.vel_by_time_axes:
             if a.ndim == 1:
@@ -384,11 +383,10 @@ class VelocityByTime:
         return self.timeframe_class(
             time=time,
             filepath=None,
-            vec_field=self.timeframe_class.vec_field_class(
+            vec_field=self.vec_field_class(
                 self.coords,
                 vel_axes
-            ),
-            **self.timeframe_kwargs
+            )
         )
 
     def shape_as_completable(self, interleaved=True):
@@ -592,16 +590,12 @@ class VelocityByTimeAneurysm(VelocityByTime):
 class MatrixArora2019(Timeframe):
     data_shape: Tuple[int]
 
-    def __init__(self, *args, **kwargs):
-        self.data_shape = None
-        super().__init__(*args, **kwargs)
-
     def load_data(self):
         data = torch.load(self.filepath).to(dtype=torch.float32).numpy()
         self.data_shape = data.shape
         width, height = range(data.shape[0]), range(data.shape[1])
         coords = Coordinates(axes=np.meshgrid(width, height)).ravel()
-        self.vec_field = VectorField(coords=coords, vel_axes=(data,))
+        self.vec_field = VectorField(coords=coords, vel_axes=(data.ravel(),))
 
     def saved_mask(self, mask_rate):
         fp = self.filepath
@@ -610,17 +604,7 @@ class MatrixArora2019(Timeframe):
         idx_u, idx_v = idx_u.numpy(), idx_v.numpy()
         mask = np.zeros(self.data_shape)
         mask[idx_u, idx_v] = 1
-        return mask.ravel()
-
-    def save(self, path, plot=True):
-        self.vec_field.save(path, plot=False)
-        if plot:
-            # vf = self.vec_field.interp(coords=self.vec_field.coords.transform(lambda x: x.reshape(self.data_shape)))
-            arr = self.vec_field.vel_axes[0].reshape(self.data_shape)
-            plots.plot_heatmap(path, arr)
-
-    def get_kwargs(self):
-        return dict(data_shape=self.data_shape)
+        return mask
 
 
 def interp_griddata(coords: Coordinates, func_values, new_coords: Coordinates, **kwargs):

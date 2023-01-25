@@ -158,7 +158,31 @@ def vel_by_time_aneurysm():
     )
 
 
+def plot_heatmap(name, vec_field):
+    arr = vec_field.ravel().vel_axes[0]
+    length = int(arr.size**(1/2))
+    assert length**2 == arr.size, 'Can only plot a square.'
+    arr = arr.reshape(length, -1)
+
+    fig, ax = plt.subplots()
+    ax.imshow(arr)
+    fig.savefig(f'{name}.pdf', format='pdf', bbox_inches='tight')
+    plt.close(fig)
+
+
+def plot_hist2d(name, vec_field):
+    fig, ax = plt.subplots()
+    x, y = vec_field.coords.axes
+    z = vec_field.vel_axes[0]
+    ax.pcolormesh(x, y, z)
+    fig.savefig(f'{name}.pdf', format='pdf', bbox_inches='tight')
+    plt.close(fig)
+
+
 def plot_vec_field(name, vec_field, scale=45, subsample=0.3):
+    if len(vec_field.components) == 1:
+        plot_heatmap(name, vec_field)
+        return
     assert len(vec_field.components) == 2, 'Can only plot 2D vector fields'
     x, y = vec_field.coords.axes
     velx, vely = vec_field.vel_axes

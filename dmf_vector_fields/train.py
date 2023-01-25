@@ -227,7 +227,7 @@ def choose_dataset(args):
             vbt = data.double_gyre()
         else:
             vbt = data.double_gyre(num_timeframes=num_timeframes)
-    elif ds is DataSet.FUNC3:
+    elif ds is DataSet.FUNC2:
         func_x = lambda t, x, y, z: np.sin(2 * x + 2 * y)
         func_y = lambda t, x, y, z: np.cos(2 * x - 2 * y)
         func_z = lambda t, x, y, z: np.cos(2 * x - 2 * z)
@@ -237,13 +237,13 @@ def choose_dataset(args):
         tf = data.MatrixArora2019(time=0, filepath=fp)
         vbt = data.VelocityByTime(vec_fields=[tf.vec_field])
         # set the mask to the saved mask
-        mask = tf.saved_mask('0.8')
+        mask = tf.saved_mask('0.8').reshape(vbt.shape_as_completable(interleaved=False))
     elif ds is DataSet.ARORA2019_10:
         fp = args['data_dir'] / 'arora2019' / 'rank10.pt'
         tf = data.MatrixArora2019(time=0, filepath=fp)
         vbt = data.VelocityByTime(vec_fields=[tf.vec_field])
         # set the mask to the saved mask
-        mask = tf.saved_mask('0.675')
+        mask = tf.saved_mask('0.675').reshape(vbt.shape_as_completable(interleaved=False))
     return vbt, mask
 
 
