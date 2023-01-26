@@ -35,7 +35,7 @@ def get_argparser():
     # Deep Matrix Factorization options
     parser.add_argument('--max-epochs', type=int, default=1_000_000,
                         help='maximum number of epochs.')
-    parser.add_argument('--desired-loss', type=float, default=1e-6,
+    parser.add_argument('--desired-loss', type=float, default=1e-7,
                         help='desired loss for early training termination.')
     parser.add_argument('--num-factors', type=int, default=3,
                         help='number of matrix factors.')

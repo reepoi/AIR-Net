@@ -19,7 +19,7 @@ class DeepMatrixFactorization(nn.Module):
     def build_matrix_factorization(self, matrix_factor_dimensions: Shape):
         seq = nn.Sequential()
         init_scale = 1e-3
-        depth = len(matrix_factor_dimensions) - 1
+        depth = len(matrix_factor_dimensions)
         n = matrix_factor_dimensions[0].rows
         scale = init_scale**(1. / depth) * n**(-0.5)
         for d_row, d_col in matrix_factor_dimensions:
