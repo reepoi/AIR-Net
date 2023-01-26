@@ -208,7 +208,7 @@ class VectorField:
         for n, a in zip(self.components, self.vel_axes):
             save(n, a)
         if plot:
-            plots.plot_vec_field(path, self.ravel())
+            plots.plot_vec_field(path, self)
 
 
 @dataclass
@@ -309,7 +309,7 @@ class VelocityByTime:
 
     def __init__(self, coords=None, vel_by_time_axes=None, components=None, filepath=None, vec_fields=None):
         if vec_fields is not None:
-            coords = vec_fields[0].coords.ravel()
+            coords = vec_fields[0].coords
             dims = len(vec_fields[0].vel_axes)
             assert all(dims == len(vf.vel_axes) for vf in vec_fields)
             vel_by_time_axes = []
@@ -377,9 +377,11 @@ class VelocityByTime:
         vel_axes = []
         for a in self.vel_by_time_axes:
             if a.ndim == 1:
-                vel_axes.append(a)
+                va = a.reshape(self.coords.axes[0].shape)
+                vel_axes.append(va)
             else:
-                vel_axes.append(a[:, time])
+                va = a[:, time].reshape(self.coords.axes[0].shape)
+                vel_axes.append(va)
         return self.timeframe_class(
             time=time,
             filepath=None,
@@ -515,7 +517,7 @@ def velocity_by_time_function(func_x, func_y, grid_bounds, grid_density, times=N
     grid_line0 = np.linspace(*linspace_args(grid_bounds[0]))
     grid_line1 = np.linspace(*linspace_args(grid_bounds[1]))
     mesh = np.meshgrid(grid_line0, grid_line1)
-    coords = Coordinates(axes=mesh).ravel()
+    coords = Coordinates(axes=mesh)
     vec_fields = [VectorField(coords=coords, vel_axes=(func_x(t, *mesh), func_y(t, *mesh))) for t in times]
     return VelocityByTime(coords=coords, vec_fields=vec_fields)
 
@@ -593,8 +595,8 @@ class MatrixArora2019(Timeframe):
         data = torch.load(self.filepath).to(dtype=torch.float32).numpy()
         self.data_shape = data.shape
         width, height = range(data.shape[0]), range(data.shape[1])
-        coords = Coordinates(axes=np.meshgrid(width, height)).ravel()
-        self.vec_field = VectorField(coords=coords, vel_axes=(data.ravel(),))
+        coords = Coordinates(axes=np.meshgrid(width, height))
+        self.vec_field = VectorField(coords=coords, vel_axes=(data,))
 
     def saved_mask(self, mask_rate):
         fp = self.filepath

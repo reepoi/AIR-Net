@@ -184,9 +184,9 @@ def plot_vec_field(name, vec_field, scale=45, subsample=0.3):
         plot_heatmap(name, vec_field)
         return
     assert len(vec_field.components) == 2, 'Can only plot 2D vector fields'
+    vec_field = vec_field.ravel()
     x, y = vec_field.coords.axes
     velx, vely = vec_field.vel_axes
-    vec_field = vec_field.ravel()
     rng = np.random.RandomState(seed=20210909)
     subsample = rng.randint(x.size, size=int(np.floor(y.size * subsample)))
     x = x[subsample]
