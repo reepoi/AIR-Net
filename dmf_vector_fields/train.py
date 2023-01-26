@@ -216,7 +216,7 @@ def choose_dataset(args):
     ds = args['data_set']
     num_timeframes = args['timeframes']
     if ds is DataSet.ANEURYSM:
-        vbt = data.VelocityByTimeAneurysm.load_from(args['data_dir'] / DataSet.ANEURYSM.value / 'vel_by_time')
+        vbt = data.VelocityByTimeAneurysm.from_save(args['data_dir'] / DataSet.ANEURYSM.value / 'vel_by_time')
         if num_timeframes is not None:
             for a in vbt.vel_by_time_axes:
                 a = a[:, :num_timeframes]
@@ -235,13 +235,13 @@ def choose_dataset(args):
     elif ds is DataSet.ARORA2019_5:
         fp = args['data_dir'] / 'arora2019' / 'rank5.pt'
         tf = data.MatrixArora2019(time=0, filepath=fp)
-        vbt = data.VelocityByTime(vec_fields=[tf.vec_field])
+        vbt = data.VelocityByTime.from_vec_fields([tf.vec_field])
         # set the mask to the saved mask
         mask = tf.saved_mask('0.8').reshape(vbt.shape_as_completable(interleaved=False))
     elif ds is DataSet.ARORA2019_10:
         fp = args['data_dir'] / 'arora2019' / 'rank10.pt'
         tf = data.MatrixArora2019(time=0, filepath=fp)
-        vbt = data.VelocityByTime(vec_fields=[tf.vec_field])
+        vbt = data.VelocityByTime.from_vec_fields([tf.vec_field])
         # set the mask to the saved mask
         mask = tf.saved_mask('0.675').reshape(vbt.shape_as_completable(interleaved=False))
     return vbt, mask
@@ -283,7 +283,7 @@ def get_task_by_technique(vbt, vbt_masked, vbt_mask, args):
                 print(f'***** BEGIN TIME {t} *****')
                 tfs.append(run_timeframe(vbt.timeframe(t), vbt_masked.timeframe(t), vbt_mask.timeframe(t), **args))
                 print(f'***** END TIME {t} *****')
-            vbt_rec = vbt.__class__(coords=vbt.coords, vec_fields=[tf.vec_field.interp(coords=vbt.coords) for tf in tfs])
+            vbt_rec = data.VelocityByTime.from_vec_fields([tf.vec_field.interp(coords=vbt.coords) for tf in tfs])
             vbt_rec.save(save_dir / 'reconstructed', plot_time=0)
             return vbt_rec
     return save_dir, task
@@ -306,8 +306,8 @@ def run_test(**args):
     # Mask vector field
     if mask is None:
         mask = model.get_bit_mask(vbt.shape_as_completable(interleaved=False), args['mask_rate'])
-    dim = len(vbt.components)
-    vbt_mask = data.VelocityByTime(coords=vbt.coords, vel_by_time_axes=(mask,) * dim, components=('mask',) * dim)
+    dims = len(vbt.components)
+    vbt_mask = data.VelocityByTime(filepath=None, coords=vbt.coords, vel_by_time_axes=(mask,) * dims, components=('mask',) * dims)
     vbt_masked = vbt.transform(lambda vel: vel * mask, interleaved=False)
 
     # Select pre-processing technique and algorithm

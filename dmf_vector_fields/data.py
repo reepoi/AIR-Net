@@ -203,7 +203,7 @@ class VectorField:
         )
 
     def save(self, path, plot=True):
-        save = lambda name, arr: np.savetxt(f'{path}_{name}.csv', arr, delimiter=',')
+        save = lambda name, arr: np.savetxt(f'{path}_vel_{name}.csv', arr, delimiter=',')
         self.coords.save(path)
         for n, a in zip(self.components, self.vel_axes):
             save(n, a)
@@ -300,33 +300,31 @@ class Timeframe:
         self.vec_field.save(path, plot=plot)
 
 
-@dataclass
+@dataclass(frozen=True)
 class VelocityByTime:
     filepath: str
     coords: Coordinates
     vel_by_time_axes: Tuple[np.ndarray]
     components: Tuple[str]
 
-    def __init__(self, coords=None, vel_by_time_axes=None, components=None, filepath=None, vec_fields=None):
-        if vec_fields is not None:
-            coords = vec_fields[0].coords
-            dims = len(vec_fields[0].vel_axes)
-            assert all(dims == len(vf.vel_axes) for vf in vec_fields)
-            vel_by_time_axes = []
-            for i in range(dims):
-                vel_by_time_axes.append(
-                    np.vstack([vf.vel_axes[i].ravel() for vf in vec_fields]).T
-                )
-            vel_by_time_axes = tuple(vel_by_time_axes)
-        elif vel_by_time_axes is None:
-            filepath, coords, vel_by_time_axes, components = self.load_data()
+    def __new__(cls, filepath, coords, vel_by_time_axes, components):
+        assert len(vel_by_time_axes) == len(components)
+        assert all(vel_by_time_axes[0].shape == a.shape for a in vel_by_time_axes)
+        return super().__new__(cls)
+
+    @classmethod
+    def from_vec_fields(cls, vec_fields, components=None):
+        vel_by_time_axes = []
+        for axes_i in zip(*(vf.vel_axes for vf in vec_fields)):
+            vel_by_time_axes.append(np.vstack([a.ravel() for a in axes_i]).T)
         if components is None:
             components = auto_component_names(len(vel_by_time_axes))
-        assert len(components) == len(vel_by_time_axes), 'Dimensions do not match'
-        self.filepath = filepath
-        self.coords = coords
-        self.vel_by_time_axes = tuple(vel_by_time_axes)
-        self.components = tuple(components)
+        return cls(
+            filepath=None,
+            coords=vec_fields[0].coords,
+            vel_by_time_axes=tuple(vel_by_time_axes),
+            components=components
+        )
 
     @property
     def timeframes(self):
@@ -358,7 +356,8 @@ class VelocityByTime:
         """
         return self.coords.lib
 
-    def load_data(self):
+    @classmethod
+    def from_save(cls, path):
         raise NotImplementedError('This should be overriden.')
 
     def timeframe(self, time):
@@ -407,6 +406,7 @@ class VelocityByTime:
         for i, a in enumerate(self.vel_by_time_axes):
             completable[i::dim] = a
         return self.__class__(
+            filepath=None,
             coords=self.coords,
             vel_by_time_axes=(completable,),
             components=auto_component_names(1)
@@ -446,6 +446,7 @@ class VelocityByTime:
             return transformed
         dims = len(self.components)
         return self.__class__(
+            filepath=None,
             coords=self.coords,
             vel_by_time_axes=tuple(transformed.vel_by_time_axes[0][i::dims] for i in range(dims)),
             components=self.components
@@ -474,7 +475,7 @@ class VelocityByTime:
         return self.transform(transform_func, interleaved=False, apply_to_coords=True)
 
     def save(self, path, plot_time=None):
-        save = lambda name, arr: np.savetxt(f'{path}_{name}.csv', arr, delimiter=',')
+        save = lambda name, arr: np.savetxt(f'{path}_vel_by_time_{name}.csv', arr, delimiter=',')
         self.coords.save(path)
         for n, a in zip(self.components, self.vel_by_time_axes):
             save(n, a)
@@ -519,7 +520,7 @@ def velocity_by_time_function(func_x, func_y, grid_bounds, grid_density, times=N
     mesh = np.meshgrid(grid_line0, grid_line1)
     coords = Coordinates(axes=mesh)
     vec_fields = [VectorField(coords=coords, vel_axes=(func_x(t, *mesh), func_y(t, *mesh))) for t in times]
-    return VelocityByTime(coords=coords, vec_fields=vec_fields)
+    return VelocityByTime.from_vec_fields(vec_fields=vec_fields)
 
 
 def func1():
@@ -569,31 +570,20 @@ class VelocityByTimeAneurysm(VelocityByTime):
     def timeframe_class(self):
         return TimeframeAneurysm
 
-    def load_data(self):
-        # duplicate point at row 39, 41
-        # From t = 0
-        # x   y   velx      vely
-        # 1.9 0.0 -0.000152 -8.057502e-07
-        data = pd.read_csv(self.filepath, header=None)
-        # data = data.drop_duplicates() # remove 2 duplicate rows
-        data = data.to_numpy()
-        self.vel_by_time_axes = data[0::2], data[1::2]
-
     @classmethod
-    def load_from(cls, path):
+    def from_save(cls, path):
         def load(n): return np.loadtxt(f'{path}_{n}.csv', delimiter=',')
         return cls(
-            coords=Coordinates(axes=(load('x'), load('y'))),
-            vel_by_time_axes=(load('velx_by_time'), load('vely_by_time'))
+            filepath=None,
+            coords=Coordinates(axes=(load('axis0'), load('axis1'))),
+            vel_by_time_axes=(load('vel_by_time_axis0'), load('vel_by_time_axis1')),
+            components=auto_component_names(2)
         )
 
 
 class MatrixArora2019(Timeframe):
-    data_shape: Tuple[int]
-
     def load_data(self):
         data = torch.load(self.filepath).to(dtype=torch.float32).numpy()
-        self.data_shape = data.shape
         width, height = range(data.shape[0]), range(data.shape[1])
         coords = Coordinates(axes=np.meshgrid(width, height))
         self.vec_field = VectorField(coords=coords, vel_axes=(data,))
@@ -603,9 +593,14 @@ class MatrixArora2019(Timeframe):
         saved_mask_path = fp.parent / f'{fp.stem}maskrate{mask_rate}.pt'
         (idx_u, idx_v), _ = torch.load(saved_mask_path)
         idx_u, idx_v = idx_u.numpy(), idx_v.numpy()
-        mask = np.zeros(self.data_shape)
+        mask = np.zeros(self.vec_field.coords.axes[0].shape)
         mask[idx_u, idx_v] = 1
         return mask
+
+
+class MatrixImage(Timeframe):
+    def load_data(self):
+        pass
 
 
 def interp_griddata(coords: Coordinates, func_values, new_coords: Coordinates, **kwargs):
