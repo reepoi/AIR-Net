@@ -58,6 +58,30 @@ def mean_sqrd_error(a, b, lib=torch):
     return lib.mean((a - b)**2)
 
 
+def mean_sqrd_error_masked(a, b, mask, lib=torch):
+    """
+    Calculates the masked squared error between two ndarrays divided by the
+    number of nonzero entries in ``mask``.
+
+    Parameters
+    ----------
+    a: numeric
+        An ndarray.
+
+    b: numeric
+        An ndarray.
+
+    lib: module
+        The ndarray library to use, i.e. torch or numpy.
+
+    Returns
+    -------
+        float
+    """
+    return lib.sum((mask * (a - b))**2) / lib.sum(mask)
+
+
+
 def l2_sqrd_error(a, b, lib=torch):
     """
     Calculates the square of the l2 vector norm of the difference
@@ -177,7 +201,7 @@ def train(max_epochs, matrix_factor_dimensions, masked_matrix, mask,
 
         # Compute prediction error
         reconstructed_matrix = model(masked_matrix)
-        loss = 0.5 * mean_sqrd_error(reconstructed_matrix * mask, masked_matrix)
+        loss = 0.5 * mean_sqrd_error_masked(reconstructed_matrix, masked_matrix, mask)
         # loss = norm_mean_abs_error(nonzero_mask(reconstructed_matrix), nonzero_mask(masked_matrix))
 
         # Backpropagation
@@ -275,7 +299,6 @@ def iterated_soft_thresholding(masked_matrix, mask, err=1e-6, normfac=1, insweep
     loss = loss_func(reconstructed_matrix, lam)
 
     e = 0
-    torch_svd_failures = 0
     while lam > lam_init * tol:
         for _ in range(insweep):
             loss_prev = loss
