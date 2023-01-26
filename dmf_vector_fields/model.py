@@ -201,8 +201,7 @@ def train(max_epochs, matrix_factor_dimensions, masked_matrix, mask,
 
         # Compute prediction error
         reconstructed_matrix = model(masked_matrix)
-        loss = 0.5 * mean_sqrd_error_masked(reconstructed_matrix, masked_matrix, mask)
-        # loss = norm_mean_abs_error(nonzero_mask(reconstructed_matrix), nonzero_mask(masked_matrix))
+        loss = mean_sqrd_error_masked(reconstructed_matrix, masked_matrix, mask)
 
         # Backpropagation
         optimizer.zero_grad()
@@ -293,7 +292,7 @@ def iterated_soft_thresholding(masked_matrix, mask, err=1e-6, normfac=1, insweep
 
     l2 = lambda v: torch.linalg.norm(v)
     l1 = lambda v: torch.linalg.norm(v, ord=1)
-    constraint = lambda RCm: l2(masked_matrix - torch.matmul(mask, RCm))
+    constraint = lambda RCm: l2(masked_matrix - mask * RCm)
     loss_func = lambda RCm, lam: constraint(RCm) + lam * l1(RCm)
 
     loss = loss_func(reconstructed_matrix, lam)

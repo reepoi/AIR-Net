@@ -407,8 +407,7 @@ class VelocityByTime:
         return self.__class__(
             coords=self.coords,
             vel_by_time_axes=(completable,),
-            components=auto_component_names(1),
-            timeframe_class=self.timeframe_class
+            components=auto_component_names(1)
         )
 
     def transform(self, transform_func, interleaved=True, apply_to_coords=False, keep_interleaved=False):
@@ -478,7 +477,7 @@ class VelocityByTime:
         for n, a in zip(self.components, self.vel_by_time_axes):
             save(n, a)
         if plot_time is not None:
-            self.timeframe(plot_time).vec_field.save(path, plot=True)
+            self.timeframe(plot_time).vec_field.save(f'{path}.{plot_time}', plot=True)
 
 
 def velocity_by_time_function(func_x, func_y, grid_bounds, grid_density, times=None):
