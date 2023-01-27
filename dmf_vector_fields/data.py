@@ -5,6 +5,7 @@ import pandas as pd
 from dmf_vector_fields.settings import torch, device
 from dmf_vector_fields import plots
 import scipy.interpolate as interp
+import cv2
 
 
 def auto_component_names(count: int):
@@ -600,7 +601,11 @@ class MatrixArora2019(Timeframe):
 
 class MatrixImage(Timeframe):
     def load_data(self):
-        pass
+        data = cv2.imread(str(self.filepath))
+        data = cv2.cvtColor(data, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255
+        width, height = range(data.shape[0]), range(data.shape[1])
+        coords = Coordinates(axes=np.meshgrid(width, height))
+        self.vec_field = VectorField(coords=coords, vel_axes=(data,))
 
 
 def interp_griddata(coords: Coordinates, func_values, new_coords: Coordinates, **kwargs):

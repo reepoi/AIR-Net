@@ -8,6 +8,10 @@ class DataSet(enum.Enum):
     DOUBLE_GYRE = 'double-gyre'
     ARORA2019_5 = 'arora2019-rank5'
     ARORA2019_10 = 'arora2019-rank10'
+    CAMERAMAN = 'cameraman'
+    CHECKERBOARD = 'checkerboard'
+    SKELETON = 'skeleton'
+    FOX = 'fox'
 
 
 class Algorithm(enum.Enum):

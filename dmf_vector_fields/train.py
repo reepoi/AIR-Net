@@ -244,6 +244,22 @@ def choose_dataset(args):
         vbt = data.VelocityByTime.from_vec_fields([tf.vec_field])
         # set the mask to the saved mask
         mask = tf.saved_mask('0.675').reshape(vbt.shape_as_completable(interleaved=False))
+    elif ds is DataSet.CAMERAMAN:
+        fp = args['data_dir'] / 'images' / 'cameraman.jpg'
+        tf = data.MatrixImage(time=0, filepath=fp)
+        vbt = data.VelocityByTime.from_vec_fields([tf.vec_field])
+    elif ds is DataSet.CHECKERBOARD:
+        fp = args['data_dir'] / 'images' / 'checkerboard.png'
+        tf = data.MatrixImage(time=0, filepath=fp)
+        vbt = data.VelocityByTime.from_vec_fields([tf.vec_field])
+    elif ds is DataSet.SKELETON:
+        fp = args['data_dir'] / 'images' / 'skeleton.png'
+        tf = data.MatrixImage(time=0, filepath=fp)
+        vbt = data.VelocityByTime.from_vec_fields([tf.vec_field])
+    elif ds is DataSet.FOX:
+        fp = args['data_dir'] / 'images' / 'fox.jpg'
+        tf = data.MatrixImage(time=0, filepath=fp)
+        vbt = data.VelocityByTime.from_vec_fields([tf.vec_field])
     return vbt, mask
 
 
